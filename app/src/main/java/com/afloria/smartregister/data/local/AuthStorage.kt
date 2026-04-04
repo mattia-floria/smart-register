@@ -53,6 +53,14 @@ class AuthStorage(context: Context) {
         }.apply()
     }
 
+    fun saveAiModel(model: String) {
+        sharedPreferences.edit().putString("selected_ai_model", model).apply()
+    }
+
+    fun getAiModel(): String {
+        return sharedPreferences.getString("selected_ai_model", "Xiaomi MiMo-V2-Flash") ?: "Xiaomi MiMo-V2-Flash"
+    }
+
     fun getThemeSettings(): ThemeSettings {
         val mode = try {
             ThemeMode.valueOf(sharedPreferences.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)

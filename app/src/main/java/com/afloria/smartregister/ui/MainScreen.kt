@@ -408,44 +408,64 @@ fun DashboardSection(viewModel: MainViewModel) {
 
         // Smart AI Brief Section
         item {
-            viewModel.aiBrief?.let { brief ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.primaryContainer,
-                                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                                    )
-                                )
-                            )
-                    ) {
+            when {
+                viewModel.isModelDownloading -> {
+                    AiModelDownloadCard(viewModel.selectedAiModel, viewModel.modelDownloadProgress)
+                }
+                viewModel.isLlmInitializing -> {
+                    AiInitializationCard(viewModel.selectedAiModel)
+                }
+                viewModel.isAiBriefLoading -> {
+                    AiBriefLoadingCard()
+                }
+                viewModel.aiBrief != null -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
-                            modifier = Modifier.padding(20.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp)
                         ) {
                             Icon(
                                 Icons.Default.AutoAwesome,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = brief,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    lineHeight = 22.sp
-                                )
+                                text = viewModel.selectedAiModel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
                             )
+                        }
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(28.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primaryContainer,
+                                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                            )
+                                        )
+                                    )
+                            ) {
+                                Text(
+                                    text = viewModel.aiBrief!!,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        lineHeight = 22.sp
+                                    ),
+                                    modifier = Modifier.padding(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1603,6 +1623,12 @@ fun CustomCalendarOverlay(
 @Composable
 fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
     var isAppearanceOpen by remember { mutableStateOf(false) }
+    var isAiModelOpen by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isAppearanceOpen || isAiModelOpen) {
+        isAppearanceOpen = false
+        isAiModelOpen = false
+    }
 
     if (isAppearanceOpen) {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -1620,47 +1646,507 @@ fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
                 showButton = false
             )
         }
+    } else if (isAiModelOpen) {
+        AiModelSelectionPage(
+            viewModel = viewModel,
+            onBack = { isAiModelOpen = false }
+        )
     } else {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 24.dp, start = 24.dp, end = 24.dp, bottom = 140.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item {
-                Text("Impostazioni", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (viewModel.studentName.isNotEmpty()) "Ciao, ${viewModel.studentName.split(" ").first()}" else "Impostazioni",
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                "AI",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Gestisci il tuo registro intelligente",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Account Section
+            item {
+                SettingsCategory("Account") {
+                    SettingsItem(
+                        icon = Icons.Default.Person,
+                        title = "Profilo",
+                        subtitle = viewModel.studentName,
+                        onClick = { /* Implement profile view if needed */ }
+                    )
+                }
+            }
+
+            // Appearance Section
+            item {
+                SettingsCategory("Aspetto") {
+                    SettingsItem(
+                        icon = Icons.Default.Palette,
+                        title = "Personalizza Tema",
+                        subtitle = "Colori e modalità scura",
+                        onClick = { isAppearanceOpen = true }
+                    )
+                }
             }
 
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable { isAppearanceOpen = true },
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                SettingsCategory("AI & Modelli") {
+                    SettingsItem(
+                        icon = Icons.Default.Psychology,
+                        title = "Modello AI",
+                        subtitle = viewModel.selectedAiModel,
+                        onClick = { isAiModelOpen = true }
+                    )
+                }
+            }
+
+            // Logout Button
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = onLogout,
+                    modifier = Modifier.fillMaxWidth().height(64.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    shape = RoundedCornerShape(24.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Icon(Icons.AutoMirrored.Filled.ExitToApp, null)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Esci dall'account", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
+    val listState = rememberLazyListState()
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
+                        MaterialTheme.colorScheme.surface
+                    )
+                )
+            )
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = { Text("Motori AI", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+            )
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().liquidFadeEdge(),
+                contentPadding = PaddingValues(24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                item {
+                    Column(modifier = Modifier.liquidItem(0, listState).padding(bottom = 8.dp)) {
+                        Text(
+                            text = "Scegli il motore dell'assistente",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Personalizza l'esperienza di analisi del registro.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                val models = listOf(
+                    "Xiaomi MiMo-V2-Flash" to "Estremamente veloce e leggero. Ottimo per riassunti rapidi dei voti.",
+                    "Google Gemma-3 1B" to "Più intelligente e preciso. Eccelle nel ragionamento logico e nel supporto compiti."
+                )
+
+                models.forEachIndexed { index, (model, description) ->
+                    item {
+                        val isSelected = viewModel.selectedAiModel == model
+                        val animatedScale by animateFloatAsState(if (isSelected) 1.02f else 1f, label = "cardScale")
+                        
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .scale(animatedScale)
+                                .liquidItem(index + 1, listState)
+                                .clickable {
+                                    if (isSelected && viewModel.isModelDownloading) {
+                                        // Already downloading feedback
+                                    } else {
+                                        viewModel.switchAiModel(model)
+                                    }
+                                },
+                            shape = RoundedCornerShape(32.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+                                                 else MaterialTheme.colorScheme.surfaceContainerHigh
+                            ),
+                            border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)) else null,
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 8.dp else 0.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (isSelected) {
+                                            Brush.linearGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                                )
+                                            )
+                                        } else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                                    )
+                                    .padding(24.dp)
+                            ) {
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier.size(48.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    if (model.contains("Gemma")) Icons.Default.Lightbulb else Icons.Default.FlashOn,
+                                                    null,
+                                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = model,
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (isSelected) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .clip(CircleShape)
+                                                            .background(MaterialTheme.colorScheme.primary)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = if (viewModel.isModelDownloading) "Scaricamento..." else "Motore attivo",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        if (isSelected && !viewModel.isModelDownloading) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = description,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        lineHeight = 22.sp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                                else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    if (isSelected && viewModel.isModelDownloading) {
+                                        Spacer(modifier = Modifier.height(20.dp))
+                                        Column {
+                                            LinearProgressIndicator(
+                                                progress = { viewModel.modelDownloadProgress },
+                                                modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
+                                                color = MaterialTheme.colorScheme.primary,
+                                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                            )
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Text(
+                                                text = "${(viewModel.modelDownloadProgress * 100).toInt()}% completato",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.align(Alignment.End)
+                                            )
+                                        }
+                                    } else if (isSelected) {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        TextButton(
+                                            onClick = { viewModel.switchAiModel(model) },
+                                            modifier = Modifier.align(Alignment.End),
+                                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Riscarica", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth().liquidItem(models.size + 1, listState),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.2f))
                     ) {
-                        Icon(Icons.Default.Palette, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text("Aspetto", style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.weight(1f))
-                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.outline)
+                        Row(
+                            modifier = Modifier.padding(20.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "L'esecuzione avviene interamente sul tuo dispositivo per garantire la massima privacy dei tuoi dati scolastici.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
                     }
                 }
             }
+        }
+    }
+}
 
-            item {
-                Spacer(modifier = Modifier.height(32.dp))
-                Button(
-                    onClick = onLogout,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error),
-                    shape = RoundedCornerShape(28.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ExitToApp, null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Logout", fontWeight = FontWeight.Bold)
-                }
+@Composable
+fun SettingsCategory(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 8.dp, bottom = 12.dp)
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        ) {
+            Column(modifier = Modifier.padding(vertical = 8.dp), content = content)
+        }
+    }
+}
+
+@Composable
+fun SettingsItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+            modifier = Modifier.size(40.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            }
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+        }
+        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+@Composable
+fun AiInitializationCard(modelName: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Memory,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Inizializzazione AI Locale",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                color = MaterialTheme.colorScheme.tertiary,
+                trackColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.1f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "$modelName sta caricando i parametri...",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+fun AiModelDownloadCard(modelName: String, progress: Float) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Download,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Configurazione Smarty (AI Locale)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                color = MaterialTheme.colorScheme.secondary,
+                trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Scaricamento $modelName: ${(progress * 100).toInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+fun AiBriefLoadingCard() {
+    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = alpha)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .height(14.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f))
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.5f)
+                        .height(14.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.1f))
+                )
             }
         }
     }

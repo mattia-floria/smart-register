@@ -122,9 +122,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val timetableData: StateFlow<TimetableData> = _timetableData
 
     // AI State
+    var selectedAiModel by mutableStateOf(authStorage.getAiModel())
     var aiBrief by mutableStateOf<String?>(null)
+    var isAiBriefLoading by mutableStateOf(false)
     private var llmInference: LlmInference? = null
     var isLlmReady by mutableStateOf(false)
+    var isLlmInitializing by mutableStateOf(false)
     var isModelDownloading by mutableStateOf(false)
     var modelDownloadProgress by mutableStateOf(0f)
     val chatMessages = mutableStateListOf<ChatMessage>()
@@ -139,20 +142,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         initOrDownloadModel()
     }
 
-    private fun initOrDownloadModel() {
-        val modelFile = File(context.filesDir, "smollm2_360m.bin")
-        if (modelFile.exists()) {
-            setupLocalLlm(modelFile)
+    fun switchAiModel(modelName: String) {
+        val alreadySelected = selectedAiModel == modelName
+        
+        selectedAiModel = modelName
+        authStorage.saveAiModel(modelName)
+        
+        // Reset AI state
+        llmInference?.close()
+        llmInference = null
+        isLlmReady = false
+        aiBrief = null
+        
+        val fileName = if (selectedAiModel == "Google Gemma-3 1B") "gemma_3_1b.bin" else "mimo_v2_flash.bin"
+        val modelFile = File(context.filesDir, fileName)
+
+        if (alreadySelected) {
+            // Force redownload if it was already selected and tapped again
+            downloadModel(modelFile, fileName)
         } else {
-            downloadModel(modelFile)
+            // Standard switch: download only if not exists
+            if (modelFile.exists()) {
+                setupLocalLlm(modelFile)
+            } else {
+                downloadModel(modelFile, fileName)
+            }
         }
     }
 
-    private fun downloadModel(targetFile: File) {
+    private fun initOrDownloadModel() {
+        val fileName = if (selectedAiModel == "Google Gemma-3 1B") "gemma_3_1b.bin" else "mimo_v2_flash.bin"
+        val modelFile = File(context.filesDir, fileName)
+        if (modelFile.exists()) {
+            setupLocalLlm(modelFile)
+        } else {
+            downloadModel(modelFile, fileName)
+        }
+    }
+
+    private fun downloadModel(targetFile: File, fileName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             isModelDownloading = true
+            modelDownloadProgress = 0f
             try {
-                val url = "https://huggingface.co/vince62s/SmolLM2-360M-Instruct-MediaPipe/resolve/main/smollm2-360m-instruct.bin"
+                val url = if (fileName == "gemma_3_1b.bin") {
+                    "https://huggingface.co/Afloria/Gemma-3-1B-MediaPipe/resolve/main/gemma_3_1b.bin"
+                } else {
+                    "https://huggingface.co/Afloria/MiMo-V2-Flash-MediaPipe/resolve/main/mimo_v2_flash.bin"
+                }
+
                 val request = Request.Builder().url(url).build()
                 val client = OkHttpClient()
                 val response: OkHttpResponse = client.newCall(request).execute()
@@ -187,19 +225,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun setupLocalLlm(modelFile: File) {
-        try {
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelFile.absolutePath)
-                .setMaxTokens(1024)
-                .build()
-            llmInference = LlmInference.createFromOptions(context, options)
-            isLlmReady = true
-            Log.d("LLM", "Local model loaded successfully")
-            if (agenda.isNotEmpty()) {
-                generateAiBrief()
+        viewModelScope.launch(Dispatchers.Default) {
+            isLlmInitializing = true
+            try {
+                val options = LlmInference.LlmInferenceOptions.builder()
+                    .setModelPath(modelFile.absolutePath)
+                    .setMaxTokens(1024)
+                    .build()
+                llmInference = LlmInference.createFromOptions(context, options)
+                isLlmReady = true
+                Log.d("LLM", "Local model loaded successfully")
+                if (agenda.isNotEmpty()) {
+                    generateAiBrief()
+                }
+            } catch (e: Exception) {
+                Log.e("LLM", "Failed to initialize local LLM", e)
+            } finally {
+                isLlmInitializing = false
             }
-        } catch (e: Exception) {
-            Log.e("LLM", "Failed to initialize local LLM", e)
         }
     }
 
@@ -597,6 +640,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (llmInference != null && isLlmReady) {
             viewModelScope.launch(Dispatchers.Default) {
+                isAiBriefLoading = true
                 try {
                     val prompt = """
                         <|system|>
@@ -611,6 +655,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (e: Exception) {
                     Log.e("LLM", "Inference failed", e)
                     aiBrief = "Errore analisi locale."
+                } finally {
+                    isAiBriefLoading = false
                 }
             }
         }
