@@ -1,4 +1,4 @@
-package com.afloria.myapplication.ui.theme
+package com.afloria.smartregister.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

@@ -49,6 +49,9 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto)
 
+    // AI
+    implementation("com.google.mediapipe:tasks-genai:0.10.33")
+
     // Networking
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.kotlin.serialization)

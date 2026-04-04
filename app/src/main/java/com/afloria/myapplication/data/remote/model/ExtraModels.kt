@@ -1,4 +1,4 @@
-package com.afloria.myapplication.data.remote.model
+package com.afloria.smartregister.data.remote.model
 
 import kotlinx.serialization.Serializable
 
@@ -38,9 +38,17 @@ data class NoticeRemoteModel(
     val pubId: Int? = null,
     val pubDT: String? = null,
     val readStatus: Boolean? = null,
+    val evtCode: String? = null,
     val cntTitle: String? = null,
     val cntCategory: String? = null,
-    val cntHasAttach: Boolean? = null
+    val cntHasAttach: Boolean? = null,
+    val attachments: List<NoticeAttachmentRemoteModel>? = null
+)
+
+@Serializable
+data class NoticeAttachmentRemoteModel(
+    val fileName: String? = null,
+    val attachNum: Int? = null
 )
 
 @Serializable
@@ -48,4 +56,16 @@ data class DidacticFolderRemoteModel(
     val folderId: Int? = null,
     val folderName: String? = null,
     val teacherName: String? = null
+)
+
+@Serializable
+data class AbsenceRemoteModel(
+    val evtId: Int? = null,
+    val evtCode: String? = null,
+    val evtDate: String? = null,
+    val evtHPos: Int? = null,
+    val evtValue: Int? = null,
+    val isJustified: Boolean? = null,
+    val justifReasonCode: String? = null,
+    val justifReasonDesc: String? = null
 )

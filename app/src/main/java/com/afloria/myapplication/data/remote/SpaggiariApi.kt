@@ -1,6 +1,6 @@
-package com.afloria.myapplication.data.remote
+package com.afloria.smartregister.data.remote
 
-import com.afloria.myapplication.data.remote.model.*
+import com.afloria.smartregister.data.remote.model.*
 import kotlinx.serialization.Serializable
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -19,6 +19,11 @@ data class AgendaResponse(
 @Serializable
 data class NoticeboardResponse(
     val items: List<NoticeRemoteModel>
+)
+
+@Serializable
+data class AbsencesResponse(
+    val events: List<AbsenceRemoteModel>
 )
 
 interface SpaggiariApi {
@@ -54,11 +59,35 @@ interface SpaggiariApi {
         @Path("studentId") studentId: String
     ): NoticeboardResponse
 
+    @GET("students/{studentId}/noticeboard/attach/{evtCode}/{pubId}/{attachNum}")
+    @Streaming
+    suspend fun getNoticeboardAttachment(
+        @Header("Z-Auth-Token") token: String,
+        @Path("studentId") studentId: String,
+        @Path("evtCode") evtCode: String,
+        @Path("pubId") pubId: Int,
+        @Path("attachNum") attachNum: Int
+    ): Response<ResponseBody>
+
     @GET("students/{studentId}/didactics")
     suspend fun getDidactics(
         @Header("Z-Auth-Token") token: String,
         @Path("studentId") studentId: String
     ): DidacticsResponse
+
+    @GET("students/{studentId}/didactics/item/{contentId}")
+    @Streaming
+    suspend fun getDidacticItem(
+        @Header("Z-Auth-Token") token: String,
+        @Path("studentId") studentId: String,
+        @Path("contentId") contentId: Int
+    ): Response<ResponseBody>
+
+    @GET("students/{studentId}/absences/details")
+    suspend fun getAbsences(
+        @Header("Z-Auth-Token") token: String,
+        @Path("studentId") studentId: String
+    ): AbsencesResponse
 
     @POST("students/{studentId}/notes/{type}/read/{layout_note}")
     suspend fun markNote(
@@ -89,5 +118,12 @@ interface SpaggiariApi {
         @Header("Z-Auth-Token") token: String,
         @Path("studentId") studentId: String,
         @Path("documentHash") documentHash: String
+    ): Response<ResponseBody>
+
+    @GET
+    @Streaming
+    suspend fun downloadFile(
+        @Header("Z-Auth-Token") token: String,
+        @Url url: String
     ): Response<ResponseBody>
 }

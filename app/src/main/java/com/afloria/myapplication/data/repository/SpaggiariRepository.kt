@@ -1,7 +1,7 @@
-package com.afloria.myapplication.data.repository
+package com.afloria.smartregister.data.repository
 
-import com.afloria.myapplication.data.remote.SpaggiariApi
-import com.afloria.myapplication.data.remote.model.*
+import com.afloria.smartregister.data.remote.SpaggiariApi
+import com.afloria.smartregister.data.remote.model.*
 
 class SpaggiariRepository(private val api: SpaggiariApi) {
 

@@ -1,4 +1,4 @@
-package com.afloria.myapplication
+package com.afloria.smartregister
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -7,21 +7,30 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.afloria.myapplication.ui.*
-import com.afloria.myapplication.ui.theme.MyApplicationTheme
+import com.afloria.smartregister.ui.*
+import com.afloria.smartregister.ui.theme.SmartRegisterTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MyApplicationTheme {
-                val viewModel: MainViewModel = viewModel()
+            val viewModel: MainViewModel = viewModel()
+            
+            SmartRegisterTheme(
+                themeMode = viewModel.themeMode,
+                seedColor = viewModel.selectedSeedColor,
+                secondaryColor = viewModel.selectedSecondaryColor,
+                tertiaryColor = viewModel.selectedTertiaryColor
+            ) {
                 val appState by viewModel.appState.collectAsState()
                 val isLoading by viewModel.isLoading.collectAsState()
                 val errorMessage by viewModel.errorMessage.collectAsState()
 
                 when (val state = appState) {
+                    is AppState.Landing, is AppState.ThemeSelection -> {
+                        LandingScreen(viewModel = viewModel)
+                    }
                     is AppState.Login -> {
                         LoginScreen(
                             onLoginClick = { user, pass -> viewModel.login(user, pass) },

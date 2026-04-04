@@ -1,4 +1,4 @@
-package com.afloria.myapplication.ui
+package com.afloria.smartregister.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,7 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.afloria.myapplication.data.remote.model.LoginChoice
+import com.afloria.smartregister.data.remote.model.LoginChoice
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

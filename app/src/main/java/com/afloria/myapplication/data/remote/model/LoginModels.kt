@@ -1,4 +1,4 @@
-package com.afloria.myapplication.data.remote.model
+package com.afloria.smartregister.data.remote.model
 
 import kotlinx.serialization.Serializable
 
