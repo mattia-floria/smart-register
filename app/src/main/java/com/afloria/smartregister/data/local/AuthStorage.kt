@@ -10,7 +10,7 @@ import com.afloria.smartregister.ui.theme.ThemeMode
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-class AuthStorage(context: Context) {
+class AuthStorage(private val context: Context) {
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -58,7 +58,44 @@ class AuthStorage(context: Context) {
     }
 
     fun getAiModel(): String {
-        return sharedPreferences.getString("selected_ai_model", "Xiaomi MiMo-V2-Flash") ?: "Xiaomi MiMo-V2-Flash"
+        return sharedPreferences.getString("selected_ai_model", null) ?: getDefaultModel()
+    }
+
+    private fun getDefaultModel(): String {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memoryInfo = android.app.ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+        val totalRamGb = memoryInfo.totalMem / (1024 * 1024 * 1024)
+        
+        return if (totalRamGb >= 8) {
+            "Gemma3-4B-IT-q4"
+        } else {
+            "Gemma3-1B-IT-q4"
+        }
+    }
+
+    fun isChatEnabled(): Boolean {
+        return sharedPreferences.getBoolean("chat_enabled", true)
+    }
+
+    fun setChatEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("chat_enabled", enabled).apply()
+    }
+
+    fun isExperimentalEnabled(): Boolean {
+        return sharedPreferences.getBoolean("experimental_enabled", false)
+    }
+
+    fun setExperimentalEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("experimental_enabled", enabled).apply()
+    }
+
+    fun isAiBriefEnabled(): Boolean {
+        return sharedPreferences.getBoolean("ai_brief_enabled", false)
+    }
+
+    fun setAiBriefEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("ai_brief_enabled", enabled).apply()
     }
 
     fun getThemeSettings(): ThemeSettings {

@@ -1,9 +1,15 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 package com.afloria.smartregister.ui
 
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -12,6 +18,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,6 +41,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.HistoryEdu
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -50,7 +65,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +77,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.Image
+import com.afloria.smartregister.ai.models.AiModels
 import com.afloria.smartregister.data.remote.model.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -181,13 +201,24 @@ fun MainScreen(
                         Box(modifier = Modifier.fillMaxSize()) {
                             when (targetTab) {
                                 0 -> DashboardSection(viewModel)
-                                1 -> AgendaTabSection(viewModel.agenda)
+                                1 -> AgendaTabSection(viewModel, viewModel.agenda)
                                 2 -> RegistryTabSection(viewModel)
                                 3 -> SettingsSection(viewModel, onLogout)
                             }
                         }
                     }
                 }
+            }
+
+            // AI Chat Overlay
+            val isChatOpen = viewModel.isChatOpen
+            AnimatedVisibility(
+                visible = isChatOpen,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier.zIndex(1f)
+            ) {
+                AiChatOverlay(viewModel)
             }
 
             // Global Download Loading Overlay with Progress
@@ -252,78 +283,102 @@ fun MainScreen(
             }
 
             // Floating Bottom Navigation Bar
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 8.dp, start = 16.dp, end = 16.dp)
-                    .navigationBarsPadding()
-                    .shadow(elevation = 12.dp, shape = CircleShape)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-            ) {
-                BoxWithConstraints(
+            if (!isChatOpen) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp, horizontal = 8.dp)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp, start = 16.dp, end = 16.dp)
+                        .navigationBarsPadding()
+                        .shadow(elevation = 12.dp, shape = CircleShape)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
                 ) {
-                    val itemWidth = maxWidth / 4
-
-                    val indicatorStart by animateDpAsState(
-                        targetValue = itemWidth * selectedTab,
-                        animationSpec = spring(
-                            dampingRatio = 0.8f,
-                            stiffness = 300f
-                        ),
-                        label = "indicatorStart"
-                    )
-
-                    val indicatorEnd by animateDpAsState(
-                        targetValue = itemWidth * (selectedTab + 1),
-                        animationSpec = spring(
-                            dampingRatio = 0.8f,
-                            stiffness = 300f
-                        ),
-                        label = "indicatorEnd"
-                    )
-
-                    // Selection Background (Liquid Morphing)
-                    Box(
+                    BoxWithConstraints(
                         modifier = Modifier
-                            .offset(x = indicatorStart)
-                            .width(indicatorEnd - indicatorStart)
-                            .height(52.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp, horizontal = 8.dp)
                     ) {
-                        FloatingNavItem(
-                            icon = Icons.Default.Home,
-                            label = "Home",
-                            isSelected = selectedTab == 0,
-                            onClick = { selectedTab = 0 }
+                        val itemWidth = maxWidth / 4
+
+                        val indicatorStart by animateDpAsState(
+                            targetValue = itemWidth * selectedTab,
+                            animationSpec = spring(
+                                dampingRatio = 0.8f,
+                                stiffness = 300f
+                            ),
+                            label = "indicatorStart"
                         )
-                        FloatingNavItem(
-                            icon = Icons.Default.CalendarMonth,
-                            label = "Agenda",
-                            isSelected = selectedTab == 1,
-                            onClick = { selectedTab = 1 }
+
+                        val indicatorEnd by animateDpAsState(
+                            targetValue = itemWidth * (selectedTab + 1),
+                            animationSpec = spring(
+                                dampingRatio = 0.8f,
+                                stiffness = 300f
+                            ),
+                            label = "indicatorEnd"
                         )
-                        FloatingNavItem(
-                            icon = Icons.AutoMirrored.Filled.ListAlt,
-                            label = "Registro",
-                            isSelected = selectedTab == 2,
-                            onClick = { selectedTab = 2 }
+
+                        // Selection Background (Liquid Morphing)
+                        Box(
+                            modifier = Modifier
+                                .offset(x = indicatorStart)
+                                .width(indicatorEnd - indicatorStart)
+                                .height(52.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
                         )
-                        FloatingNavItem(
-                            icon = Icons.Default.Settings,
-                            label = "Impostazioni",
-                            isSelected = selectedTab == 3,
-                            onClick = { selectedTab = 3 }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FloatingNavItem(
+                                icon = Icons.Default.Home,
+                                label = "Home",
+                                isSelected = selectedTab == 0,
+                                onClick = { selectedTab = 0 }
+                            )
+                            FloatingNavItem(
+                                icon = Icons.Default.CalendarMonth,
+                                label = "Agenda",
+                                isSelected = selectedTab == 1,
+                                onClick = { selectedTab = 1 }
+                            )
+                            FloatingNavItem(
+                                icon = Icons.AutoMirrored.Filled.ListAlt,
+                                label = "Registro",
+                                isSelected = selectedTab == 2,
+                                onClick = { selectedTab = 2 }
+                            )
+                            FloatingNavItem(
+                                icon = Icons.Default.Settings,
+                                label = "Impostazioni",
+                                isSelected = selectedTab == 3,
+                                onClick = { selectedTab = 3 }
+                            )
+                        }
+                    }
+                }
+
+                // Floating AI Action Button
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 80.dp, end = 16.dp)
+                        .navigationBarsPadding()
+                ) {
+                    FloatingActionButton(
+                        onClick = { viewModel.isChatOpen = true },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        shape = CircleShape,
+                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "Chat AI",
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
@@ -374,10 +429,100 @@ fun RowScope.FloatingNavItem(
 }
 
 @Composable
+fun WeeklyEventsChart(agenda: List<AgendaEventRemoteModel>) {
+    val dayFrequencies = remember(agenda) {
+        val counts = IntArray(7) { 0 }
+        val calendar = Calendar.getInstance()
+        val now = Calendar.getInstance()
+        now.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+        now.set(Calendar.HOUR_OF_DAY, 0)
+        now.set(Calendar.MINUTE, 0)
+        now.set(Calendar.SECOND, 0)
+        val startOfWeek = now.timeInMillis
+        now.add(Calendar.DAY_OF_YEAR, 7)
+        val endOfWeek = now.timeInMillis
+
+        agenda.forEach { event ->
+            val dateStr = event.evtDatetimeBegin?.split("T")?.first()
+            val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr ?: "")
+            date?.let {
+                if (it.time in startOfWeek until endOfWeek) {
+                    calendar.time = it
+                    val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
+                    val index = if (dayOfWeek == Calendar.SUNDAY) 6 else dayOfWeek - 2
+                    counts[index]++
+                }
+            }
+        }
+        counts
+    }
+
+    val maxCount = dayFrequencies.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val days = listOf("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(
+                text = "Impegni della settimana",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                dayFrequencies.forEachIndexed { index, count ->
+                    val barHeight = (count.toFloat() / maxCount).coerceAtLeast(0.05f)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.4f)
+                                .fillMaxHeight(barHeight)
+                                .background(
+                                    color = if (count > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
+                                )
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = days[index],
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DashboardSection(viewModel: MainViewModel) {
     val tomorrowEvents = viewModel.getTomorrowEvents()
-    val average = calculateAverage(viewModel.grades)
     val listState = rememberLazyListState()
+
+    val subjectsToRecover = remember(viewModel.grades) {
+        viewModel.grades
+            .filter { it.decimalValue != null }
+            .groupBy { it.subjectDesc ?: "Altro" }
+            .mapValues { entry ->
+                entry.value.mapNotNull { it.decimalValue }.average()
+            }
+            .filter { it.value < 6.0 }
+            .size
+    }
 
     LazyColumn(
         state = listState,
@@ -406,106 +551,68 @@ fun DashboardSection(viewModel: MainViewModel) {
             }
         }
 
-        // Smart AI Brief Section
+        // AI Status Section
         item {
+            val modelDisplayName = viewModel.currentModel?.displayName ?: viewModel.selectedAiModelName
             when {
                 viewModel.isModelDownloading -> {
-                    AiModelDownloadCard(viewModel.selectedAiModel, viewModel.modelDownloadProgress)
+                    AiModelDownloadCard(modelDisplayName, viewModel.modelDownloadProgress)
                 }
                 viewModel.isLlmInitializing -> {
-                    AiInitializationCard(viewModel.selectedAiModel)
-                }
-                viewModel.isAiBriefLoading -> {
-                    AiBriefLoadingCard()
-                }
-                viewModel.aiBrief != null -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = viewModel.selectedAiModel,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(28.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        brush = Brush.verticalGradient(
-                                            colors = listOf(
-                                                MaterialTheme.colorScheme.primaryContainer,
-                                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                                            )
-                                        )
-                                    )
-                            ) {
-                                Text(
-                                    text = viewModel.aiBrief!!,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        lineHeight = 22.sp
-                                    ),
-                                    modifier = Modifier.padding(20.dp)
-                                )
-                            }
-                        }
-                    }
+                    AiInitializationCard(modelDisplayName)
                 }
             }
         }
 
         item {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                shape = RoundedCornerShape(topStart = 100.dp, bottomEnd = 100.dp, topEnd = 32.dp, bottomStart = 32.dp),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(32.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = if (subjectsToRecover > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = if (subjectsToRecover > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
                 )
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .background(
+                                color = (if (subjectsToRecover > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary).copy(alpha = 0.2f),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = average,
-                            style = TextStyle(
-                                fontSize = 92.sp,
+                            text = subjectsToRecover.toString(),
+                            style = MaterialTheme.typography.displayMedium.copy(
                                 fontWeight = FontWeight.Black,
-                                textAlign = TextAlign.Center
+                                color = if (subjectsToRecover > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                             )
                         )
+                    }
+                    Column {
                         Text(
-                            text = "MEDIA GENERALE",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                letterSpacing = 2.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
+                            text = "Materie da recuperare",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (subjectsToRecover == 0) "Puoi stare tranquillo!" else "Dai il massimo per recuperare!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = (if (subjectsToRecover > 0) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer).copy(alpha = 0.8f)
                         )
                     }
                 }
             }
+        }
+
+        item {
+            WeeklyEventsChart(viewModel.agenda)
         }
 
         item {
@@ -533,7 +640,7 @@ fun DashboardSection(viewModel: MainViewModel) {
                     }
                 } else {
                     tomorrowEvents.forEach { event ->
-                        DashboardAgendaItem(event)
+                        DashboardAgendaItem(event, viewModel)
                     }
                 }
             }
@@ -1316,7 +1423,7 @@ fun AverageTrendChart(grades: List<GradeRemoteModel>) {
 }
 
 @Composable
-fun AgendaTabSection(agenda: List<AgendaEventRemoteModel>) {
+fun AgendaTabSection(viewModel: MainViewModel, agenda: List<AgendaEventRemoteModel>) {
     val sdfDay = SimpleDateFormat("d", Locale.getDefault())
     val sdfDayOfWeek = SimpleDateFormat("EEE", Locale.getDefault())
     val sdfFull = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -1442,7 +1549,7 @@ fun AgendaTabSection(agenda: List<AgendaEventRemoteModel>) {
                     ) {
                         itemsIndexed(filteredEvents) { index, event ->
                             Box(modifier = Modifier.liquidItem(index, pagerListState)) {
-                                AgendaItem(event)
+                                AgendaItem(event, viewModel)
                             }
                         }
                     }
@@ -1624,6 +1731,28 @@ fun CustomCalendarOverlay(
 fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
     var isAppearanceOpen by remember { mutableStateOf(false) }
     var isAiModelOpen by remember { mutableStateOf(false) }
+    var showExperimentalDialog by remember { mutableStateOf(false) }
+
+    if (showExperimentalDialog) {
+        AlertDialog(
+            onDismissRequest = { showExperimentalDialog = false },
+            title = { Text("Attiva funzioni sperimentali") },
+            text = { Text("Le funzioni sperimentali sono instabili e potrebbero causare malfunzionamenti. Vuoi continuare?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.toggleExperimental(true)
+                    showExperimentalDialog = false
+                }) {
+                    Text("Attiva")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExperimentalDialog = false }) {
+                    Text("Annulla")
+                }
+            }
+        )
+    }
 
     BackHandler(enabled = isAppearanceOpen || isAiModelOpen) {
         isAppearanceOpen = false
@@ -1713,13 +1842,71 @@ fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
             }
 
             item {
-                SettingsCategory("AI & Modelli") {
+                SettingsCategory("Sperimentazione") {
                     SettingsItem(
-                        icon = Icons.Default.Psychology,
-                        title = "Modello AI",
-                        subtitle = viewModel.selectedAiModel,
-                        onClick = { isAiModelOpen = true }
+                        icon = Icons.Default.Science,
+                        title = "Funzioni sperimentali",
+                        subtitle = "Accedi a funzionalità in anteprima",
+                        trailing = {
+                            Switch(
+                                checked = viewModel.isExperimentalEnabled,
+                                onCheckedChange = {
+                                    if (it) showExperimentalDialog = true
+                                    else viewModel.toggleExperimental(false)
+                                }
+                            )
+                        },
+                        onClick = {
+                            if (!viewModel.isExperimentalEnabled) showExperimentalDialog = true
+                            else viewModel.toggleExperimental(false)
+                        }
                     )
+                }
+            }
+
+            if (viewModel.isExperimentalEnabled) {
+                item {
+                    SettingsCategory("Smarty AI") {
+                        SettingsItem(
+                            icon = Icons.Default.Chat,
+                            title = "Smarty Chat",
+                            subtitle = if (viewModel.isChatEnabled) "Attivata" else "Disattivata",
+                            trailing = {
+                                Switch(
+                                    checked = viewModel.isChatEnabled,
+                                    onCheckedChange = { viewModel.toggleChat(it) }
+                                )
+                            },
+                            onClick = { viewModel.toggleChat(!viewModel.isChatEnabled) }
+                        )
+                        if (viewModel.isChatEnabled) {
+                            SettingsItem(
+                                icon = Icons.Default.Psychology,
+                                title = "Modello AI",
+                                subtitle = viewModel.currentModel?.displayName
+                                    ?: viewModel.selectedAiModelName,
+                                onClick = { isAiModelOpen = true }
+                            )
+                        }
+                        SettingsItem(
+                            icon = Icons.Default.HistoryEdu,
+                            title = "AI Brief",
+                            subtitle = "Riassunto automatico agenda",
+                            trailing = {
+                                Switch(
+                                    checked = viewModel.isAiBriefEnabled,
+                                    onCheckedChange = { viewModel.toggleAiBrief(it) }
+                                )
+                            },
+                            onClick = { viewModel.toggleAiBrief(!viewModel.isAiBriefEnabled) }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Gavel,
+                            title = "Note legali AI",
+                            subtitle = "Termini e limitazioni",
+                            onClick = { /* Mostra disclaimer o apri URL */ }
+                        )
+                    }
                 }
             }
 
@@ -1793,14 +1980,11 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                     }
                 }
 
-                val models = listOf(
-                    "Xiaomi MiMo-V2-Flash" to "Estremamente veloce e leggero. Ottimo per riassunti rapidi dei voti.",
-                    "Google Gemma-3 1B" to "Più intelligente e preciso. Eccelle nel ragionamento logico e nel supporto compiti."
-                )
+                val models = AiModels.ALL_MODELS
 
-                models.forEachIndexed { index, (model, description) ->
+                models.forEachIndexed { index, model ->
                     item {
-                        val isSelected = viewModel.selectedAiModel == model
+                        val isSelected = viewModel.selectedAiModelName == model.name
                         val animatedScale by animateFloatAsState(if (isSelected) 1.02f else 1f, label = "cardScale")
                         
                         Card(
@@ -1812,7 +1996,7 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                                     if (isSelected && viewModel.isModelDownloading) {
                                         // Already downloading feedback
                                     } else {
-                                        viewModel.switchAiModel(model)
+                                        viewModel.switchAiModel(model.name)
                                     }
                                 },
                             shape = RoundedCornerShape(32.dp),
@@ -1848,7 +2032,7 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Icon(
-                                                    if (model.contains("Gemma")) Icons.Default.Lightbulb else Icons.Default.FlashOn,
+                                                    if (model.name.contains("gemma")) Icons.Default.Lightbulb else Icons.Default.FlashOn,
                                                     null,
                                                     tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(24.dp)
@@ -1858,7 +2042,7 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = model,
+                                                text = model.displayName,
                                                 style = MaterialTheme.typography.titleLarge,
                                                 fontWeight = FontWeight.Bold,
                                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
@@ -1893,7 +2077,7 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                                     
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = description,
+                                        text = model.info,
                                         style = MaterialTheme.typography.bodyLarge,
                                         lineHeight = 22.sp,
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -1920,14 +2104,31 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                                         }
                                     } else if (isSelected) {
                                         Spacer(modifier = Modifier.height(12.dp))
-                                        TextButton(
-                                            onClick = { viewModel.switchAiModel(model) },
-                                            modifier = Modifier.align(Alignment.End),
-                                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Riscarica", fontWeight = FontWeight.Bold)
+                                            if (viewModel.isLlmReady) {
+                                                TextButton(
+                                                    onClick = { viewModel.deleteSelectedModel() },
+                                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                                ) {
+                                                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text("Elimina", fontWeight = FontWeight.Bold)
+                                                }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
+                                            
+                                            TextButton(
+                                                onClick = { viewModel.downloadCurrentModel() },
+                                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                                            ) {
+                                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Riscarica", fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
                                 }
@@ -1992,6 +2193,7 @@ fun SettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -2017,7 +2219,11 @@ fun SettingsItem(
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
-        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.outlineVariant)
+        if (trailing != null) {
+            trailing()
+        } else {
+            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.outlineVariant)
+        }
     }
 }
 
@@ -2078,7 +2284,7 @@ fun AiModelDownloadCard(modelName: String, progress: Float) {
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "Configurazione Smarty (AI Locale)",
+                    text = "Configurazione AI Locale",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -2100,57 +2306,6 @@ fun AiModelDownloadCard(modelName: String, progress: Float) {
     }
 }
 
-@Composable
-fun AiBriefLoadingCard() {
-    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = alpha)
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .height(14.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f))
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.5f)
-                        .height(14.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.1f))
-                )
-            }
-        }
-    }
-}
 
 @Composable
 fun GradeItem(grade: GradeRemoteModel, showSubject: Boolean = true) {
@@ -2181,43 +2336,131 @@ fun GradeItem(grade: GradeRemoteModel, showSubject: Boolean = true) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DashboardAgendaItem(event: AgendaEventRemoteModel) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-            contentColor = MaterialTheme.colorScheme.onSurface
-        )
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(
-                event.subjectDesc ?: "Evento",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
+fun DashboardAgendaItem(event: AgendaEventRemoteModel, viewModel: MainViewModel) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    Box {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = { showMenu = true }
+                ),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                contentColor = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(event.notes ?: "", style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = event.authorName ?: "",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    event.subjectDesc ?: "Evento",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(event.notes ?: "", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = event.authorName ?: "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Copia") },
+                onClick = {
+                    viewModel.copyToClipboard(event.notes ?: "")
+                    showMenu = false
+                },
+                leadingIcon = { Icon(Icons.Default.ContentCopy, null) }
             )
+            DropdownMenuItem(
+                text = { Text("Condividi") },
+                onClick = {
+                    viewModel.shareText(event.notes ?: "")
+                    showMenu = false
+                },
+                leadingIcon = { Icon(Icons.Default.Share, null) }
+            )
+            if (viewModel.isChatEnabled) {
+                DropdownMenuItem(
+                    text = { Text("Spiega con Smarty") },
+                    onClick = {
+                        viewModel.explainWithSmarty(event)
+                        showMenu = false
+                    },
+                    leadingIcon = { Icon(Icons.Default.Psychology, null) }
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AgendaItem(event: AgendaEventRemoteModel) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(event.subjectDesc ?: "Nota", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Text(event.notes ?: "", style = MaterialTheme.typography.bodyMedium)
-            Text(event.authorName ?: "", style = MaterialTheme.typography.labelSmall)
+fun AgendaItem(event: AgendaEventRemoteModel, viewModel: MainViewModel) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    Box {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = { showMenu = true }
+                ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    event.subjectDesc ?: "Nota",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(event.notes ?: "", style = MaterialTheme.typography.bodyMedium)
+                Text(event.authorName ?: "", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Copia") },
+                onClick = {
+                    viewModel.copyToClipboard(event.notes ?: "")
+                    showMenu = false
+                },
+                leadingIcon = { Icon(Icons.Default.ContentCopy, null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Condividi") },
+                onClick = {
+                    viewModel.shareText(event.notes ?: "")
+                    showMenu = false
+                },
+                leadingIcon = { Icon(Icons.Default.Share, null) }
+            )
+            if (viewModel.isChatEnabled) {
+                DropdownMenuItem(
+                    text = { Text("Spiega con Smarty") },
+                    onClick = {
+                        viewModel.explainWithSmarty(event)
+                        showMenu = false
+                    },
+                    leadingIcon = { Icon(Icons.Default.Psychology, null) }
+                )
+            }
         }
     }
 }
@@ -2608,6 +2851,289 @@ fun EditTimetableDialog(entry: TimetableEntry, onDismiss: () -> Unit, onConfirm:
             TextButton(onClick = onDismiss) { Text("Annulla") }
         }
     )
+}
+
+@Composable
+fun AiChatOverlay(viewModel: MainViewModel) {
+    var messageText by remember { mutableStateOf("") }
+    var showClearConfirmation by remember { mutableStateOf(false) }
+    var selectedImage by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val listState = rememberLazyListState()
+    val context = LocalContext.current
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            val bitmap = if (Build.VERSION.SDK_INT < 28) {
+                @Suppress("DEPRECATION")
+                MediaStore.Images.Media.getBitmap(context.contentResolver, it)
+            } else {
+                val source = ImageDecoder.createSource(context.contentResolver, it)
+                ImageDecoder.decodeBitmap(source)
+            }
+            selectedImage = bitmap
+        }
+    }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = { Text("Pulisci chat") },
+            text = { Text("Sei sicuro di voler eliminare tutti i messaggi?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearChat()
+                    showClearConfirmation = false
+                }) {
+                    Text("Pulisci", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmation = false }) {
+                    Text("Annulla")
+                }
+            }
+        )
+    }
+
+    BackHandler {
+        viewModel.isChatOpen = false
+    }
+
+    LaunchedEffect(viewModel.chatMessages.size) {
+        if (viewModel.chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(viewModel.chatMessages.size - 1)
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { viewModel.isChatOpen = false }) {
+                    Icon(Icons.Default.Close, contentDescription = "Chiudi")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "AI Chat",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Assistente locale • ${viewModel.currentModel?.displayName}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { showClearConfirmation = true }) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = "Pulisci chat", tint = MaterialTheme.colorScheme.outline)
+                }
+            }
+
+            // Chat Messages
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (viewModel.chatMessages.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillParentMaxSize()
+                                .padding(bottom = 64.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Chiedimi qualsiasi cosa!",
+                                style = MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "L'esecuzione avviene interamente sul tuo dispositivo.",
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                } else {
+                    items(viewModel.chatMessages) { message ->
+                        ChatBubble(message)
+                    }
+                }
+
+                if (viewModel.isChatLoading) {
+                    item {
+                        Box(modifier = Modifier.padding(8.dp)) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Image Preview if selected
+            selectedImage?.let {
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        tonalElevation = 4.dp
+                    ) {
+                        Box {
+                            Image(
+                                bitmap = it.asImageBitmap(),
+                                contentDescription = "Selected image",
+                                modifier = Modifier.height(100.dp),
+                                contentScale = ContentScale.FillHeight
+                            )
+                            IconButton(
+                                onClick = { selectedImage = null },
+                                modifier = Modifier.align(Alignment.TopEnd).size(32.dp).padding(4.dp)
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Input Area
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (viewModel.currentModel?.llmSupportImage == true) {
+                        IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
+                            Icon(
+                                Icons.Default.AddPhotoAlternate,
+                                contentDescription = "Aggiungi immagine",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+
+                    OutlinedTextField(
+                        value = messageText,
+                        onValueChange = { messageText = it },
+                        placeholder = { Text("Scrivi un messaggio...") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    IconButton(
+                        onClick = {
+                            if (messageText.isNotBlank() || selectedImage != null) {
+                                viewModel.sendChatMessage(messageText, selectedImage)
+                                messageText = ""
+                                selectedImage = null
+                            }
+                        },
+                        enabled = (messageText.isNotBlank() || selectedImage != null) && !viewModel.isChatLoading,
+                        modifier = Modifier
+                            .background(
+                                color = if (messageText.isNotBlank() || selectedImage != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                shape = CircleShape
+                            )
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Send,
+                            contentDescription = "Invia",
+                            tint = if (messageText.isNotBlank() || selectedImage != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubble(message: ChatMessage) {
+    val haptic = LocalHapticFeedback.current
+    val alignment = if (message.isUser) Alignment.CenterEnd else Alignment.CenterStart
+    val horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start
+    val containerColor = if (message.isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+    val contentColor = if (message.isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+    val shape = if (message.isUser) {
+        RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
+    } else {
+        RoundedCornerShape(20.dp, 20.dp, 20.dp, 4.dp)
+    }
+
+    LaunchedEffect(message.text) {
+        if (!message.isUser) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = alignment) {
+        Column(horizontalAlignment = horizontalAlignment) {
+            Surface(
+                color = containerColor,
+                contentColor = contentColor,
+                shape = shape
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    message.image?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "Message image",
+                            modifier = Modifier.heightIn(max = 200.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+                        if (message.text.isNotBlank()) Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    if (message.text.isNotBlank()) {
+                        Text(
+                            text = message.text,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun formatDate(dateStr: String?): String {

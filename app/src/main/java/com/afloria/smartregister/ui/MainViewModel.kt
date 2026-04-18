@@ -14,15 +14,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.afloria.smartregister.ai.data.Model
+import com.afloria.smartregister.ai.data.ModelDownloadStatusType
+import com.afloria.smartregister.ai.download.ModelDownloadManager
+import com.afloria.smartregister.ai.models.AiModels
+import com.afloria.smartregister.ai.runtime.LlmChatModelHelper
 import com.afloria.smartregister.data.local.AuthStorage
 import com.afloria.smartregister.data.remote.SpaggiariApi
 import com.afloria.smartregister.data.remote.model.*
 import com.afloria.smartregister.ui.theme.ThemeMode
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.ai.edge.litertlm.Contents
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -48,11 +55,12 @@ sealed class AppState {
     data class SelectProfile(val choices: List<LoginChoice>) : AppState()
 }
 
-data class ChatMessage(val text: String, val isUser: Boolean)
+data class ChatMessage(val text: String, val isUser: Boolean, val image: android.graphics.Bitmap? = null)
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val authStorage = AuthStorage(application)
     private val context = application
+    private val modelDownloadManager = ModelDownloadManager(application)
     
     var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     var selectedSeedColor by mutableStateOf<Color?>(null)
@@ -122,16 +130,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val timetableData: StateFlow<TimetableData> = _timetableData
 
     // AI State
-    var selectedAiModel by mutableStateOf(authStorage.getAiModel())
-    var aiBrief by mutableStateOf<String?>(null)
-    var isAiBriefLoading by mutableStateOf(false)
-    private var llmInference: LlmInference? = null
+    var selectedAiModelName by mutableStateOf(authStorage.getAiModel())
+    val currentModel: Model?
+        get() = AiModels.ALL_MODELS.find { it.name == selectedAiModelName }
+
     var isLlmReady by mutableStateOf(false)
     var isLlmInitializing by mutableStateOf(false)
     var isModelDownloading by mutableStateOf(false)
     var modelDownloadProgress by mutableStateOf(0f)
     val chatMessages = mutableStateListOf<ChatMessage>()
     var isChatLoading by mutableStateOf(false)
+    var isChatOpen by mutableStateOf(false)
+    var isChatEnabled by mutableStateOf(true)
+    var isExperimentalEnabled by mutableStateOf(false)
+    var isAiBriefEnabled by mutableStateOf(false)
+
+    private var downloadStatusJob: Job? = null
 
     private var tempPass: String? = null
 
@@ -143,106 +157,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun switchAiModel(modelName: String) {
-        val alreadySelected = selectedAiModel == modelName
-        
-        selectedAiModel = modelName
+        selectedAiModelName = modelName
         authStorage.saveAiModel(modelName)
         
         // Reset AI state
-        llmInference?.close()
-        llmInference = null
+        currentModel?.let { LlmChatModelHelper.cleanUp(it) {} }
         isLlmReady = false
-        aiBrief = null
         
-        val fileName = if (selectedAiModel == "Google Gemma-3 1B") "gemma_3_1b.bin" else "mimo_v2_flash.bin"
-        val modelFile = File(context.filesDir, fileName)
-
-        if (alreadySelected) {
-            // Force redownload if it was already selected and tapped again
-            downloadModel(modelFile, fileName)
-        } else {
-            // Standard switch: download only if not exists
-            if (modelFile.exists()) {
-                setupLocalLlm(modelFile)
-            } else {
-                downloadModel(modelFile, fileName)
-            }
-        }
+        initOrDownloadModel()
     }
 
     private fun initOrDownloadModel() {
-        val fileName = if (selectedAiModel == "Google Gemma-3 1B") "gemma_3_1b.bin" else "mimo_v2_flash.bin"
-        val modelFile = File(context.filesDir, fileName)
-        if (modelFile.exists()) {
-            setupLocalLlm(modelFile)
-        } else {
-            downloadModel(modelFile, fileName)
-        }
-    }
-
-    private fun downloadModel(targetFile: File, fileName: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            isModelDownloading = true
-            modelDownloadProgress = 0f
-            try {
-                val url = if (fileName == "gemma_3_1b.bin") {
-                    "https://huggingface.co/Afloria/Gemma-3-1B-MediaPipe/resolve/main/gemma_3_1b.bin"
-                } else {
-                    "https://huggingface.co/Afloria/MiMo-V2-Flash-MediaPipe/resolve/main/mimo_v2_flash.bin"
-                }
-
-                val request = Request.Builder().url(url).build()
-                val client = OkHttpClient()
-                val response: OkHttpResponse = client.newCall(request).execute()
-                
-                if (response.isSuccessful) {
-                    val body = response.body
-                    if (body != null) {
-                        val totalBytes = body.contentLength()
-                        body.byteStream().use { input ->
-                            FileOutputStream(targetFile).use { output ->
-                                val buffer = ByteArray(8192)
-                                var bytesRead: Int
-                                var downloaded: Long = 0
-                                while (input.read(buffer).also { bytesRead = it } != -1) {
-                                    output.write(buffer, 0, bytesRead)
-                                    downloaded += bytesRead
-                                    if (totalBytes > 0) {
-                                        modelDownloadProgress = downloaded.toFloat() / totalBytes
-                                    }
-                                }
-                            }
+        val model = currentModel ?: return
+        
+        downloadStatusJob?.cancel()
+        downloadStatusJob = viewModelScope.launch {
+            modelDownloadManager.getDownloadStatus(model).collectLatest { status ->
+                when (status.status) {
+                    ModelDownloadStatusType.NOT_DOWNLOADED -> {
+                        // Do nothing, wait for user to start download or automatically start if needed
+                        // Removing auto-download from init to allow re-downloading
+                    }
+                    ModelDownloadStatusType.IN_PROGRESS -> {
+                        isModelDownloading = true
+                        isLlmReady = false
+                        if (status.totalBytes > 0) {
+                            modelDownloadProgress = status.receivedBytes.toFloat() / status.totalBytes
                         }
-                        setupLocalLlm(targetFile)
+                    }
+                    ModelDownloadStatusType.SUCCEEDED -> {
+                        isModelDownloading = false
+                        if (!isLlmReady && !isLlmInitializing) {
+                            setupLocalLlm(model)
+                        }
+                    }
+                    ModelDownloadStatusType.FAILED -> {
+                        isModelDownloading = false
+                        Log.e("AI", "Download failed: ${status.errorMessage}")
                     }
                 }
-            } catch (e: Exception) {
-                Log.e("LLM_DOWNLOAD", "Failed to download model", e)
-            } finally {
-                isModelDownloading = false
             }
         }
     }
 
-    private fun setupLocalLlm(modelFile: File) {
+    private fun setupLocalLlm(model: Model) {
         viewModelScope.launch(Dispatchers.Default) {
             isLlmInitializing = true
-            try {
-                val options = LlmInference.LlmInferenceOptions.builder()
-                    .setModelPath(modelFile.absolutePath)
-                    .setMaxTokens(1024)
-                    .build()
-                llmInference = LlmInference.createFromOptions(context, options)
-                isLlmReady = true
-                Log.d("LLM", "Local model loaded successfully")
-                if (agenda.isNotEmpty()) {
-                    generateAiBrief()
+            LlmChatModelHelper.initialize(
+                context = context,
+                model = model,
+                supportImage = model.llmSupportImage,
+                supportAudio = model.llmSupportAudio,
+                onDone = { error ->
+                    viewModelScope.launch(Dispatchers.Main) {
+                        isLlmInitializing = false
+                        if (error.isEmpty()) {
+                            isLlmReady = true
+                            Log.d("LLM", "Local model loaded successfully")
+                        } else {
+                            Log.e("LLM", "Failed to initialize: $error")
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("LLM", "Failed to initialize local LLM", e)
-            } finally {
-                isLlmInitializing = false
-            }
+            )
         }
     }
 
@@ -252,6 +229,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectedSeedColor = settings.seed
         selectedSecondaryColor = settings.secondary
         selectedTertiaryColor = settings.tertiary
+        isChatEnabled = authStorage.isChatEnabled()
+        isExperimentalEnabled = authStorage.isExperimentalEnabled()
+        isAiBriefEnabled = authStorage.isAiBriefEnabled()
     }
 
     private fun loadTimetable() {
@@ -352,6 +332,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectedSecondaryColor = secondary
         selectedTertiaryColor = tertiary
         authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor)
+    }
+
+    fun toggleChat(enabled: Boolean) {
+        isChatEnabled = enabled
+        authStorage.setChatEnabled(enabled)
+        if (!enabled) chatMessages.clear()
+        checkAiStatus()
+    }
+
+    fun toggleExperimental(enabled: Boolean) {
+        isExperimentalEnabled = enabled
+        authStorage.setExperimentalEnabled(enabled)
+        if (!enabled) {
+            toggleAiBrief(false)
+        }
+    }
+
+    fun toggleAiBrief(enabled: Boolean) {
+        isAiBriefEnabled = enabled
+        authStorage.setAiBriefEnabled(enabled)
+    }
+
+    private fun checkAiStatus() {
+        if (!isChatEnabled) {
+            currentModel?.let { LlmChatModelHelper.cleanUp(it) {} }
+            isLlmReady = false
+        } else if (!isLlmReady && !isLlmInitializing && !isModelDownloading) {
+            initOrDownloadModel()
+        }
+    }
+
+    fun deleteSelectedModel() {
+        val model = currentModel ?: return
+        viewModelScope.launch {
+            LlmChatModelHelper.cleanUp(model) {
+                modelDownloadManager.deleteModel(model)
+                isLlmReady = false
+                viewModelScope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "Modello ${model.displayName} eliminato", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     private fun checkInitialState() {
@@ -479,7 +501,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (_timetableData.value.entries.isEmpty()) {
                 generateTimetableFromAgenda()
             }
-            generateAiBrief()
         } catch (e: Exception) {
             Log.e("CV_DATA", "Data fetch failed", e)
         }
@@ -627,85 +648,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun generateAiBrief() {
-        val nextWeekEvents = getNextWeekEvents()
-        if (nextWeekEvents.isEmpty()) {
-            aiBrief = "Nessun impegno particolare per la prossima settimana. Goditi il relax!"
-            return
+    fun sendChatMessage(text: String, image: android.graphics.Bitmap? = null) {
+        if (text.isBlank() && image == null) return
+        if (chatMessages.isEmpty() || chatMessages.last().text != text) {
+            chatMessages.add(ChatMessage(text, true, image))
         }
-
-        val eventsText = nextWeekEvents.joinToString("\n") { 
-            "- ${it.evtDatetimeBegin}: ${it.subjectDesc} - ${it.notes}" 
-        }
-
-        if (llmInference != null && isLlmReady) {
-            viewModelScope.launch(Dispatchers.Default) {
-                isAiBriefLoading = true
-                try {
-                    val prompt = """
-                        <|system|>
-                        Sei un assistente studente. Riassumi gli impegni in MASSIMO 10 PAROLE in italiano. Sii motivante.
-                        <|user|>
-                        Impegni:
-                        $eventsText
-                        <|assistant|>
-                    """.trimIndent()
-                    val result = llmInference?.generateResponse(prompt)
-                    aiBrief = result?.trim()
-                } catch (e: Exception) {
-                    Log.e("LLM", "Inference failed", e)
-                    aiBrief = "Errore analisi locale."
-                } finally {
-                    isAiBriefLoading = false
-                }
-            }
-        }
-    }
-
-    private fun getRegisterSummary(): String {
-        val gradesText = grades.take(10).joinToString(", ") { "${it.subjectDesc}: ${it.displayValue}" }
-        val agendaText = agenda.take(5).joinToString(", ") { "${it.evtDatetimeBegin}: ${it.subjectDesc}" }
-        val allNotes = mutableListOf<String>()
-        notes?.notesNTTE?.forEach { allNotes.add(it.getDisplayNote()) }
-        val notesSummary = allNotes.take(3).joinToString(", ")
         
-        return """
-            Dati Registro:
-            Voti recenti: $gradesText
-            Prossimi impegni: $agendaText
-            Note: $notesSummary
-        """.trimIndent()
-    }
-
-    fun sendChatMessage(text: String) {
-        if (text.isBlank()) return
-        chatMessages.add(ChatMessage(text, true))
-        
-        if (llmInference != null && isLlmReady) {
+        val model = currentModel
+        if (model != null && isLlmReady) {
             viewModelScope.launch(Dispatchers.Default) {
                 isChatLoading = true
                 try {
-                    val summary = getRegisterSummary()
                     val prompt = """
                         <|system|>
-                        Sei Smarty, un assistente virtuale locale per lo studente ${studentName}.
-                        Hai accesso ai dati del registro elettronico qui sotto.
-                        Rispondi in modo amichevole, conciso e in italiano.
-                        $summary
+                        Sei un assistente virtuale utile e conciso. Rispondi sempre in italiano.
                         <|user|>
                         $text
                         <|assistant|>
                     """.trimIndent()
-                    val response = llmInference?.generateResponse(prompt)
-                    withContext(Dispatchers.Main) {
-                        chatMessages.add(ChatMessage(response?.trim() ?: "Nessuna risposta.", false))
-                    }
+                    
+                    var response = ""
+                    var lastHapticTime = 0L
+                    LlmChatModelHelper.runInference(
+                        model = model,
+                        input = prompt,
+                        images = if (image != null) listOf(image) else emptyList(),
+                        resultListener = { part, done, _ ->
+                            if (done) {
+                                viewModelScope.launch(Dispatchers.Main) {
+                                    isChatLoading = false
+                                }
+                            } else {
+                                response += part
+                                viewModelScope.launch(Dispatchers.Main) {
+                                    if (chatMessages.isNotEmpty() && !chatMessages.last().isUser) {
+                                        chatMessages[chatMessages.size - 1] = ChatMessage(response.trim(), false)
+                                    } else {
+                                        chatMessages.add(ChatMessage(response.trim(), false))
+                                    }
+                                    
+                                    val currentTime = System.currentTimeMillis()
+                                    if (currentTime - lastHapticTime > 50) { 
+                                        // We'll handle haptics in the UI layer if possible, 
+                                        // or trigger it here if we had a reference to HapticFeedback.
+                                        // Since we don't have it easily here, we'll signal it via a state if needed.
+                                        lastHapticTime = currentTime
+                                    }
+                                }
+                            }
+                        },
+                        cleanUpListener = {},
+                        onError = { error ->
+                            viewModelScope.launch(Dispatchers.Main) {
+                                chatMessages.add(ChatMessage("Errore: $error", false))
+                                isChatLoading = false
+                            }
+                        }
+                    )
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
                         chatMessages.add(ChatMessage("Errore durante l'elaborazione.", false))
+                        isChatLoading = false
                     }
-                } finally {
-                    isChatLoading = false
                 }
             }
         } else {
@@ -732,20 +736,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return agenda.filter { it.evtDatetimeBegin?.startsWith(tomorrowStr) == true }
     }
 
+    fun downloadCurrentModel() {
+        currentModel?.let { modelDownloadManager.downloadModel(it) }
+    }
+
+    fun clearChat() {
+        chatMessages.clear()
+        currentModel?.let { model ->
+            LlmChatModelHelper.resetConversation(model)
+        }
+    }
+
+    fun explainWithSmarty(event: AgendaEventRemoteModel) {
+        val prompt = "Spiegami meglio questo evento in agenda: \"${event.notes}\" della materia ${event.subjectDesc} in data ${event.evtDatetimeBegin}."
+        isChatOpen = true
+        sendChatMessage(prompt)
+    }
+
+    fun copyToClipboard(text: String) {
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("Smart Register", text)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Copiato negli appunti", Toast.LENGTH_SHORT).show()
+    }
+
+    fun shareText(text: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        val chooser = Intent.createChooser(intent, "Condividi con...")
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    }
+
     fun logout() {
         authStorage.clear()
-        CookieManager.getInstance().removeAllCookies(null)
         _appState.value = AppState.Login
-        tempPass = null
-        grades = emptyList()
-        notes = null
-        agenda = emptyList()
-        notices = emptyList()
-        teachersMaterials = emptyList()
-        absences = emptyList()
-        finalGrades = emptyList()
-        studentName = ""
-        aiBrief = null
+        currentModel?.let { LlmChatModelHelper.cleanUp(it) {} }
+        isLlmReady = false
         chatMessages.clear()
     }
 }

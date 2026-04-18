@@ -51,6 +51,9 @@ dependencies {
 
     // AI
     implementation("com.google.mediapipe:tasks-genai:0.10.33")
+    implementation(libs.litert.lm)
+    implementation(libs.gson)
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Networking
     implementation(libs.retrofit.core)
