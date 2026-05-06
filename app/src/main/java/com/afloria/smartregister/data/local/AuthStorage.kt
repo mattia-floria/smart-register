@@ -5,12 +5,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.afloria.smartregister.data.remote.model.TimetableData
+import com.afloria.smartregister.data.remote.model.*
 import com.afloria.smartregister.ui.theme.ThemeMode
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class AuthStorage(private val context: Context) {
+    private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -58,20 +59,7 @@ class AuthStorage(private val context: Context) {
     }
 
     fun getAiModel(): String {
-        return sharedPreferences.getString("selected_ai_model", null) ?: getDefaultModel()
-    }
-
-    private fun getDefaultModel(): String {
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        val memoryInfo = android.app.ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(memoryInfo)
-        val totalRamGb = memoryInfo.totalMem / (1024 * 1024 * 1024)
-        
-        return if (totalRamGb >= 8) {
-            "Gemma3-4B-IT-q4"
-        } else {
-            "Gemma3-1B-IT-q4"
-        }
+        return sharedPreferences.getString("selected_ai_model", null) ?: "gemma-3-1b-it"
     }
 
     fun isChatEnabled(): Boolean {
@@ -96,6 +84,14 @@ class AuthStorage(private val context: Context) {
 
     fun setAiBriefEnabled(enabled: Boolean) {
         sharedPreferences.edit().putBoolean("ai_brief_enabled", enabled).apply()
+    }
+
+    fun saveAiBriefSummary(summary: String) {
+        sharedPreferences.edit().putString("ai_brief_summary", summary).apply()
+    }
+
+    fun getAiBriefSummary(): String? {
+        return sharedPreferences.getString("ai_brief_summary", null)
     }
 
     fun getThemeSettings(): ThemeSettings {
@@ -134,7 +130,96 @@ class AuthStorage(private val context: Context) {
         sharedPreferences.edit()
             .remove("ident")
             .remove("pass")
+            .remove("cached_login")
+            .remove("cached_grades")
+            .remove("cached_notes")
+            .remove("cached_agenda")
+            .remove("cached_notices")
+            .remove("cached_materials")
+            .remove("cached_absences")
+            .remove("cached_final_grades")
+            .remove("last_update_ts")
             .apply()
+    }
+
+    fun saveLoginResponse(response: LoginResponse) {
+        sharedPreferences.edit().putString("cached_login", json.encodeToString(response)).apply()
+    }
+
+    fun getLoginResponse(): LoginResponse? {
+        val s = sharedPreferences.getString("cached_login", null) ?: return null
+        return try { json.decodeFromString<LoginResponse>(s) } catch (e: Exception) { null }
+    }
+
+    fun saveGrades(data: List<GradeRemoteModel>) {
+        sharedPreferences.edit().putString("cached_grades", json.encodeToString(data)).apply()
+    }
+
+    fun getGrades(): List<GradeRemoteModel> {
+        val s = sharedPreferences.getString("cached_grades", null) ?: return emptyList()
+        return try { json.decodeFromString<List<GradeRemoteModel>>(s) } catch (e: Exception) { emptyList() }
+    }
+
+    fun saveNotes(data: NotesResponse) {
+        sharedPreferences.edit().putString("cached_notes", json.encodeToString(data)).apply()
+    }
+
+    fun getNotes(): NotesResponse? {
+        val s = sharedPreferences.getString("cached_notes", null) ?: return null
+        return try { json.decodeFromString<NotesResponse>(s) } catch (e: Exception) { null }
+    }
+
+    fun saveAgenda(data: List<AgendaEventRemoteModel>) {
+        sharedPreferences.edit().putString("cached_agenda", json.encodeToString(data)).apply()
+    }
+
+    fun getAgenda(): List<AgendaEventRemoteModel> {
+        val s = sharedPreferences.getString("cached_agenda", null) ?: return emptyList()
+        return try { json.decodeFromString<List<AgendaEventRemoteModel>>(s) } catch (e: Exception) { emptyList() }
+    }
+
+    fun saveNotices(data: List<NoticeRemoteModel>) {
+        sharedPreferences.edit().putString("cached_notices", json.encodeToString(data)).apply()
+    }
+
+    fun getNotices(): List<NoticeRemoteModel> {
+        val s = sharedPreferences.getString("cached_notices", null) ?: return emptyList()
+        return try { json.decodeFromString<List<NoticeRemoteModel>>(s) } catch (e: Exception) { emptyList() }
+    }
+
+    fun saveMaterials(data: List<TeacherRemoteModel>) {
+        sharedPreferences.edit().putString("cached_materials", json.encodeToString(data)).apply()
+    }
+
+    fun getMaterials(): List<TeacherRemoteModel> {
+        val s = sharedPreferences.getString("cached_materials", null) ?: return emptyList()
+        return try { json.decodeFromString<List<TeacherRemoteModel>>(s) } catch (e: Exception) { emptyList() }
+    }
+
+    fun saveAbsences(data: List<AbsenceRemoteModel>) {
+        sharedPreferences.edit().putString("cached_absences", json.encodeToString(data)).apply()
+    }
+
+    fun getAbsences(): List<AbsenceRemoteModel> {
+        val s = sharedPreferences.getString("cached_absences", null) ?: return emptyList()
+        return try { json.decodeFromString<List<AbsenceRemoteModel>>(s) } catch (e: Exception) { emptyList() }
+    }
+
+    fun saveFinalGrades(data: List<SchoolReportRemoteModel>) {
+        sharedPreferences.edit().putString("cached_final_grades", json.encodeToString(data)).apply()
+    }
+
+    fun getFinalGrades(): List<SchoolReportRemoteModel> {
+        val s = sharedPreferences.getString("cached_final_grades", null) ?: return emptyList()
+        return try { json.decodeFromString<List<SchoolReportRemoteModel>>(s) } catch (e: Exception) { emptyList() }
+    }
+
+    fun saveLastUpdateTimestamp(ts: Long) {
+        sharedPreferences.edit().putLong("last_update_ts", ts).apply()
+    }
+
+    fun getLastUpdateTimestamp(): Long {
+        return sharedPreferences.getLong("last_update_ts", 0L)
     }
 }
 

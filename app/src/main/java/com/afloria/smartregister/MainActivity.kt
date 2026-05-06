@@ -11,6 +11,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkManager
+import com.afloria.smartregister.ai.sync.AiBriefWorker
 import com.afloria.smartregister.ui.*
 import com.afloria.smartregister.ui.theme.SmartRegisterTheme
 
@@ -28,6 +29,9 @@ class MainActivity : ComponentActivity() {
 
         // Cancel legacy WorkManager tasks
         WorkManager.getInstance(applicationContext).cancelAllWorkByTag("legacy_model_download")
+        
+        // Schedule AI Brief background generation
+        AiBriefWorker.schedule(applicationContext)
 
         enableEdgeToEdge()
         setContent {

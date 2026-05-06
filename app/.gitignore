@@ -1,1 +1,7 @@
 /build
+/release
+*.jks
+*.p12
+*.pfx
+*.keystore
+key.properties

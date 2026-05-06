@@ -48,7 +48,15 @@ data class Model(
     }
 
     fun getPath(context: Context, fileName: String = downloadFileName): String {
-        val baseDir = File(context.getExternalFilesDir("llm_models"), "$normalizedName/$version")
+        val customPath = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+            .getString("custom_model_path", null)
+        
+        val baseDir = if (customPath != null) {
+            File(customPath, "$normalizedName/$version")
+        } else {
+            File(context.getExternalFilesDir("llm_models"), "$normalizedName/$version")
+        }
+
         if (!baseDir.exists()) baseDir.mkdirs()
         return File(baseDir, fileName).absolutePath
     }
@@ -65,6 +73,11 @@ data class Model(
             configValues.getOrDefault(key.label, defaultValue),
             ValueType.FLOAT
         ) as Float
+    }
+
+    fun isDownloaded(context: Context): Boolean {
+        val file = File(getPath(context))
+        return file.exists() && file.length() > 0 && (sizeInBytes <= 0 || file.length() >= sizeInBytes)
     }
 }
 

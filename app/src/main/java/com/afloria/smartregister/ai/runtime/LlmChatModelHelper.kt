@@ -19,6 +19,7 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ToolProvider
+import com.google.ai.edge.litertlm.ToolSet
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -42,24 +43,35 @@ object LlmChatModelHelper : LlmModelHelper {
         enableConversationConstrainedDecoding: Boolean,
         coroutineScope: CoroutineScope?,
     ) {
-        val maxTokens = model.getIntConfigValue(key = ConfigKeys.MAX_TOKENS, defaultValue = 1024)
-        val topK = model.getIntConfigValue(key = ConfigKeys.TOPK, defaultValue = 40)
-        val topP = model.getFloatConfigValue(key = ConfigKeys.TOPP, defaultValue = 0.9f)
-        val temperature = model.getFloatConfigValue(key = ConfigKeys.TEMPERATURE, defaultValue = 0.2f)
+        val maxTokens = model.getIntConfigValue(key = ConfigKeys.MAX_TOKENS, defaultValue = 2048)
+        val topK = model.getIntConfigValue(key = ConfigKeys.TOPK, defaultValue = 1)
+        val topP = model.getFloatConfigValue(key = ConfigKeys.TOPP, defaultValue = 0.1f)
+        val temperature = model.getFloatConfigValue(key = ConfigKeys.TEMPERATURE, defaultValue = 0.1f)
         
-        val preferredBackend = Backend.GPU()
+        val acceleratorName = model.configValues[ConfigKeys.ACCELERATOR.label] as? String
+        val preferredBackend = when (acceleratorName) {
+            Accelerator.CPU.name -> Backend.CPU()
+            Accelerator.GPU.name -> Backend.GPU()
+            Accelerator.NPU.name -> Backend.NPU()
+            else -> Backend.CPU()
+        }
 
         val modelPath = model.getPath(context = context)
+        Log.d(TAG, "Model path: $modelPath")
+        val cacheDir = context.getExternalFilesDir("llm_cache")?.absolutePath
+        Log.d(TAG, "Cache dir: $cacheDir")
+
         val engineConfig = EngineConfig(
             modelPath = modelPath,
             backend = preferredBackend,
             visionBackend = if (supportImage) Backend.GPU() else null,
             audioBackend = if (supportAudio) Backend.CPU() else null,
             maxNumTokens = maxTokens,
-            cacheDir = context.getExternalFilesDir("llm_cache")?.absolutePath,
+            cacheDir = cacheDir,
         )
 
         try {
+            Log.d(TAG, "Initializing engine with backend: ${preferredBackend::class.java.simpleName}")
             val engine = Engine(engineConfig)
             engine.initialize()
 
@@ -77,8 +89,9 @@ object LlmChatModelHelper : LlmModelHelper {
             )
             ExperimentalFlags.enableConversationConstrainedDecoding = false
             model.instance = LlmModelInstance(engine = engine, conversation = conversation)
-        } catch (e: Exception) {
-            onDone(e.message ?: "Unknown error")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Fatal error during engine initialization", t)
+            onDone(t.message ?: "Unknown error")
             return
         }
         onDone("")
@@ -122,12 +135,14 @@ object LlmChatModelHelper : LlmModelHelper {
     }
 
     override fun cleanUp(model: Model, onDone: () -> Unit) {
-        val instance = model.instance as? LlmModelInstance ?: return
-        try {
-            instance.conversation.close()
-            instance.engine.close()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clean up", e)
+        val instance = model.instance as? LlmModelInstance
+        if (instance != null) {
+            try {
+                instance.conversation.close()
+                instance.engine.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to clean up", e)
+            }
         }
         cleanUpListeners.remove(model.name)?.invoke()
         model.instance = null

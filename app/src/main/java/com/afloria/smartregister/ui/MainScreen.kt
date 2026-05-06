@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +24,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,6 +36,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,11 +45,15 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.HistoryEdu
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -63,6 +70,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -70,7 +78,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,9 +86,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.Image
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.afloria.smartregister.ai.models.AiModels
 import com.afloria.smartregister.data.remote.model.*
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
+import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -298,7 +312,7 @@ fun MainScreen(
                             .fillMaxWidth()
                             .padding(vertical = 6.dp, horizontal = 8.dp)
                     ) {
-                        val itemWidth = maxWidth / 4
+                        val itemWidth = this.maxWidth / 4
 
                         val indicatorStart by animateDpAsState(
                             targetValue = itemWidth * selectedTab,
@@ -362,24 +376,26 @@ fun MainScreen(
                 }
 
                 // Floating AI Action Button
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(bottom = 80.dp, end = 16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    FloatingActionButton(
-                        onClick = { viewModel.isChatOpen = true },
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        shape = CircleShape,
-                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp)
+                if (viewModel.isExperimentalEnabled && viewModel.isChatEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 80.dp, end = 16.dp)
+                            .navigationBarsPadding()
                     ) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = "Chat AI",
-                            modifier = Modifier.size(24.dp)
-                        )
+                        FloatingActionButton(
+                            onClick = { viewModel.isChatOpen = true },
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = CircleShape,
+                            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = "Chat AI",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -431,7 +447,7 @@ fun RowScope.FloatingNavItem(
 @Composable
 fun WeeklyEventsChart(agenda: List<AgendaEventRemoteModel>) {
     val dayFrequencies = remember(agenda) {
-        val counts = IntArray(7) { 0 }
+        val counts = IntArray(6)
         val calendar = Calendar.getInstance()
         val now = Calendar.getInstance()
         now.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
@@ -439,7 +455,7 @@ fun WeeklyEventsChart(agenda: List<AgendaEventRemoteModel>) {
         now.set(Calendar.MINUTE, 0)
         now.set(Calendar.SECOND, 0)
         val startOfWeek = now.timeInMillis
-        now.add(Calendar.DAY_OF_YEAR, 7)
+        now.add(Calendar.DAY_OF_YEAR, 6)
         val endOfWeek = now.timeInMillis
 
         agenda.forEach { event ->
@@ -449,8 +465,10 @@ fun WeeklyEventsChart(agenda: List<AgendaEventRemoteModel>) {
                 if (it.time in startOfWeek until endOfWeek) {
                     calendar.time = it
                     val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
-                    val index = if (dayOfWeek == Calendar.SUNDAY) 6 else dayOfWeek - 2
-                    counts[index]++
+                    if (dayOfWeek != Calendar.SUNDAY) {
+                        val index = (dayOfWeek + 5) % 7
+                        if (index < 6) counts[index]++
+                    }
                 }
             }
         }
@@ -458,7 +476,7 @@ fun WeeklyEventsChart(agenda: List<AgendaEventRemoteModel>) {
     }
 
     val maxCount = dayFrequencies.maxOrNull()?.coerceAtLeast(1) ?: 1
-    val days = listOf("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
+    val days = listOf("Lun", "Mar", "Mer", "Gio", "Ven", "Sab")
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -472,36 +490,75 @@ fun WeeklyEventsChart(agenda: List<AgendaEventRemoteModel>) {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
-            Row(
+            
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(100.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.Bottom
+                    .height(120.dp)
             ) {
-                dayFrequencies.forEachIndexed { index, count ->
-                    val barHeight = (count.toFloat() / maxCount).coerceAtLeast(0.05f)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.4f)
-                                .fillMaxHeight(barHeight)
-                                .background(
-                                    color = if (count > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                    shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
-                                )
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = days[index],
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
+                // Smooth Line Chart using Canvas
+                val primaryColor = MaterialTheme.colorScheme.primary
+                val outlineColor = MaterialTheme.colorScheme.outlineVariant
+                
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val width = size.width
+                    val height = size.height
+                    val spacing = width / (dayFrequencies.size - 1)
+                    
+                    val points = dayFrequencies.indices.map { i ->
+                        Offset(
+                            x = i * spacing,
+                            y = height - (dayFrequencies[i].toFloat() / maxCount * (height * 0.8f)) - (height * 0.1f)
                         )
                     }
+
+                    val path = Path().apply {
+                        if (points.isNotEmpty()) {
+                            moveTo(points[0].x, points[0].y)
+                            for (i in 0 until points.size - 1) {
+                                val p1 = points[i]
+                                val p2 = points[i + 1]
+                                val controlPoint1 = Offset(p1.x + (p2.x - p1.x) / 2, p1.y)
+                                val controlPoint2 = Offset(p1.x + (p2.x - p1.x) / 2, p2.y)
+                                cubicTo(controlPoint1.x, controlPoint1.y, controlPoint2.x, controlPoint2.y, p2.x, p2.y)
+                            }
+                        }
+                    }
+                    
+                    drawPath(
+                        path = path,
+                        color = primaryColor,
+                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                    
+                    // Draw dots
+                    points.forEachIndexed { index, point ->
+                        drawCircle(
+                            color = if (dayFrequencies[index] > 0) primaryColor else outlineColor,
+                            radius = 6.dp.toPx(),
+                            center = point
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 3.dp.toPx(),
+                            center = point
+                        )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                days.forEach { day ->
+                    Text(
+                        text = day,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -513,14 +570,56 @@ fun DashboardSection(viewModel: MainViewModel) {
     val tomorrowEvents = viewModel.getTomorrowEvents()
     val listState = rememberLazyListState()
 
+    val daysToSchoolEnd = remember {
+        val calendar = Calendar.getInstance()
+        val currentYear = calendar.get(Calendar.YEAR)
+        val endOfSchool = Calendar.getInstance().apply {
+            // Heuristic for Italian school end (approx June 8th)
+            // Ideally should be fetched from an API or regional setting
+            set(Calendar.MONTH, Calendar.JUNE)
+            set(Calendar.DAY_OF_MONTH, 8)
+            if (calendar.get(Calendar.MONTH) > Calendar.JUNE) {
+                set(Calendar.YEAR, currentYear + 1)
+            } else {
+                set(Calendar.YEAR, currentYear)
+            }
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val diff = endOfSchool.timeInMillis - calendar.timeInMillis
+        (diff / (1000 * 60 * 60 * 24)).coerceAtLeast(0)
+    }
+
     val subjectsToRecover = remember(viewModel.grades) {
-        viewModel.grades
-            .filter { it.decimalValue != null }
+        if (viewModel.grades.isEmpty()) return@remember 0
+
+        // Determine current period based on the latest grade's periodDesc
+        val lastGrade = viewModel.grades.firstOrNull()
+        val lastGradePeriod = lastGrade?.periodDesc?.lowercase() ?: ""
+        
+        val isSecondPeriod = lastGradePeriod.contains("2") || 
+                             lastGradePeriod.contains("secondo") || 
+                             lastGradePeriod.contains("pentamestre") || 
+                             (lastGradePeriod.contains("quadrimestre") && lastGradePeriod.contains("secondo"))
+
+        val currentPeriodGrades = viewModel.grades.filter {
+            val desc = it.periodDesc?.lowercase() ?: ""
+            if (isSecondPeriod) {
+                desc.contains("2") || desc.contains("secondo") || desc.contains("pentamestre") || (desc.contains("quadrimestre") && desc.contains("secondo"))
+            } else {
+                desc.contains("1") || desc.contains("primo") || desc.contains("trimestre") || (desc.contains("quadrimestre") && !desc.contains("secondo"))
+            }
+        }
+
+        currentPeriodGrades
             .groupBy { it.subjectDesc ?: "Altro" }
             .mapValues { entry ->
-                entry.value.mapNotNull { it.decimalValue }.average()
+                val validGrades = entry.value.filter { !isNonContributing(it) }.mapNotNull { it.decimalValue }
+                if (validGrades.isEmpty()) 0.0 else validGrades.average()
             }
-            .filter { it.value < 6.0 }
+            .filter { it.value in 0.1..5.99 }
             .size
     }
 
@@ -531,7 +630,11 @@ fun DashboardSection(viewModel: MainViewModel) {
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
         item {
-            Box {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
                 Column {
                     Text(
                         text = "Bentornato,",
@@ -548,6 +651,32 @@ fun DashboardSection(viewModel: MainViewModel) {
                         )
                     )
                 }
+
+                // School countdown
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = daysToSchoolEnd.toString(),
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Text(
+                            text = "giorni alla fine",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
             }
         }
 
@@ -560,6 +689,63 @@ fun DashboardSection(viewModel: MainViewModel) {
                 }
                 viewModel.isLlmInitializing -> {
                     AiInitializationCard(modelDisplayName)
+                }
+            }
+        }
+
+        if (viewModel.isAiBriefEnabled) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                            Text(
+                                text = "AI Brief",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            
+                            if (viewModel.isAiBriefLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+
+                        val summary = viewModel.aiBriefSummary
+                        if (summary != null) {
+                            Text(
+                                text = summary,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        } else if (!viewModel.isAiBriefLoading) {
+                            Text(
+                                text = "Nessun riassunto disponibile. Trascina per aggiornare.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -649,7 +835,7 @@ fun DashboardSection(viewModel: MainViewModel) {
 }
 
 enum class RegistrySection {
-    MENU, GRADES, NOTES, NOTICEBOARD, TEACHER_FILES, ABSENCES, FINAL_GRADES, TIMETABLE
+    MENU, GRADES, NOTES, NOTICEBOARD, TEACHER_FILES, ABSENCES, FINAL_GRADES, TIMETABLE, WEB
 }
 
 data class RegistryMenuItem(
@@ -672,7 +858,8 @@ fun RegistryTabSection(viewModel: MainViewModel) {
         RegistryMenuItem("Materiale", Icons.Default.Folder, RegistrySection.TEACHER_FILES, Color(0xFF9C27B0)),
         RegistryMenuItem("Assenze", Icons.Default.EventBusy, RegistrySection.ABSENCES, Color(0xFFF44336)),
         RegistryMenuItem("Scrutinio", Icons.Default.School, RegistrySection.FINAL_GRADES, Color(0xFF795548)),
-        RegistryMenuItem("Orario", Icons.Default.Schedule, RegistrySection.TIMETABLE, Color(0xFF607D8B))
+        RegistryMenuItem("Orario", Icons.Default.Schedule, RegistrySection.TIMETABLE, Color(0xFF607D8B)),
+        RegistryMenuItem("ClasseViva Web", Icons.Default.Public, RegistrySection.WEB, Color(0xFFE91E63))
     )
 
     BackHandler(enabled = currentSection != RegistrySection.MENU || selectedReportUrl != null) {
@@ -768,10 +955,60 @@ fun RegistryTabSection(viewModel: MainViewModel) {
                         TimetableTabSection(viewModel)
                     }
                 }
+                RegistrySection.WEB -> {
+                    ClasseVivaWebSection(viewModel) { currentSection = RegistrySection.MENU }
+                }
             }
         }
     }
 }
+
+@Composable
+fun ClasseVivaWebSection(viewModel: MainViewModel, onBack: () -> Unit) {
+    val (ident, pass) = viewModel.getCredentials()
+    
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        RegistrySectionHeader(title = "ClasseViva Web", onBack = onBack)
+        
+        if (ident != null && pass != null) {
+            AndroidView(
+                factory = { context ->
+                    WebView(context).apply {
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                if (url?.contains("login.php") == true) {
+                                    val js = """
+                                        (function() {
+                                            var uid = document.getElementById('uid');
+                                            var pwd = document.getElementById('pwd');
+                                            if (uid && pwd) {
+                                                uid.value = '$ident';
+                                                pwd.value = '$pass';
+                                                var btn = document.querySelector('button[type="submit"]') || document.querySelector('.btn-login');
+                                                if (btn) btn.click();
+                                            }
+                                        })();
+                                    """.trimIndent()
+                                    view?.evaluateJavascript(js, null)
+                                }
+                            }
+                        }
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                        loadUrl("https://web.spaggiari.eu/home/app/default/login.php")
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            EmptyState("Credenziali non salvate.")
+        }
+    }
+}
+
 
 @Composable
 fun WebViewScreen(url: String, token: String?, title: String, onBack: () -> Unit) {
@@ -868,9 +1105,22 @@ fun GradesTabSection(grades: List<GradeRemoteModel>) {
     var selectedSubject by remember { mutableStateOf<String?>(null) }
     val tabs = listOf("Tutti", "1° Periodo", "2° Periodo", "Materie")
     val listState = rememberLazyListState()
+    var showAveragesOnly by remember { mutableStateOf(false) }
+
+    val filteredGrades = when (selectedGradeTab) {
+        1 -> grades.filter {
+            val desc = it.periodDesc?.lowercase() ?: ""
+            desc.contains("1") || desc.contains("primo") || desc.contains("trimestre") || (desc.contains("quadrimestre") && !desc.contains("secondo"))
+        }
+        2 -> grades.filter {
+            val desc = it.periodDesc?.lowercase() ?: ""
+            desc.contains("2") || desc.contains("secondo") || desc.contains("pentamestre") || (desc.contains("quadrimestre") && desc.contains("secondo"))
+        }
+        else -> grades
+    }.sortedByDescending { it.evtDate }
 
     if (selectedSubject != null) {
-        val subjectGrades = grades.filter { it.subjectDesc == selectedSubject }.sortedBy { it.evtDate }
+        val subjectGrades = filteredGrades.filter { it.subjectDesc == selectedSubject }.sortedBy { it.evtDate }
         SubjectDetailView(
             subjectName = selectedSubject!!,
             grades = subjectGrades,
@@ -878,6 +1128,7 @@ fun GradesTabSection(grades: List<GradeRemoteModel>) {
         )
     } else {
         Column(modifier = Modifier.fillMaxSize()) {
+            // First Level Tabs (Categories)
             Box(
                 modifier = Modifier
                     .padding(horizontal = 24.dp, vertical = 8.dp)
@@ -911,20 +1162,56 @@ fun GradesTabSection(grades: List<GradeRemoteModel>) {
                 }
             }
 
+            // Second Level Toggle (Voti vs Medie) - Only for 1°/2° Periodo
+            if (selectedGradeTab == 1 || selectedGradeTab == 2) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp, vertical = 4.dp)
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                ) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        listOf("Voti", "Medie ${tabs[selectedGradeTab]}").forEachIndexed { index, title ->
+                            val isSelected = (index == 0 && !showAveragesOnly) || (index == 1 && showAveragesOnly)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .padding(2.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .clickable { showAveragesOnly = index == 1 },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             val filteredGrades = when (selectedGradeTab) {
                 1 -> grades.filter {
                     val desc = it.periodDesc?.lowercase() ?: ""
-                    desc.contains("1") || desc.contains("primo") || desc.contains("trimestre") || desc.contains("quadrimestre")
+                    desc.contains("1") || desc.contains("primo") || desc.contains("trimestre") || (desc.contains("quadrimestre") && !desc.contains("secondo"))
                 }
                 2 -> grades.filter {
                     val desc = it.periodDesc?.lowercase() ?: ""
-                    desc.contains("2") || desc.contains("secondo") || desc.contains("pentamestre") || desc.contains("quadrimestre")
+                    desc.contains("2") || desc.contains("secondo") || desc.contains("pentamestre") || (desc.contains("quadrimestre") && desc.contains("secondo"))
                 }
                 else -> grades
             }.sortedByDescending { it.evtDate }
 
-            if (selectedGradeTab == 3) {
-                SubjectsSummaryList(grades) { selectedSubject = it }
+            if (selectedGradeTab == 3 || showAveragesOnly) {
+                SubjectsSummaryList(filteredGrades) { selectedSubject = it }
             } else {
                 val currentAverage = calculateAverage(filteredGrades)
 
@@ -1046,64 +1333,112 @@ fun NotesTabSection(notesResponse: NotesResponse?) {
 @Composable
 fun NoticeboardTabSection(viewModel: MainViewModel, notices: List<NoticeRemoteModel>) {
     val listState = rememberLazyListState()
-    if (notices.isEmpty()) {
-        EmptyState("Nessuna comunicazione")
-    } else {
-        LazyColumn(
-            state = listState,
-            contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            itemsIndexed(notices) { index, notice ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().liquidItem(index, listState),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = notice.cntTitle ?: "Senza titolo",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = notice.pubDT?.substringBefore("T") ?: "",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+    var searchQuery by remember { mutableStateOf("") }
+    
+    val filteredNotices = remember(notices, searchQuery) {
+        if (searchQuery.isBlank()) notices
+        else notices.filter { 
+            (it.cntTitle ?: "").contains(searchQuery, ignoreCase = true) ||
+            (it.pubDT ?: "").contains(searchQuery, ignoreCase = true) ||
+            (it.cntCategory ?: "").contains(searchQuery, ignoreCase = true)
+        }
+    }
 
-                        if (!notice.attachments.isNullOrEmpty()) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text("Allegati:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            notice.attachments.forEach { attachment ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { viewModel.downloadNoticeAttachment(notice, attachment) }
-                                        .padding(vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.AttachFile, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = attachment.fileName ?: "Allegato",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (filteredNotices.isEmpty()) {
+            EmptyState(if (searchQuery.isEmpty()) "Nessuna comunicazione" else "Nessun risultato per \"$searchQuery\"")
+        } else {
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(top = 80.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                itemsIndexed(filteredNotices) { index, notice ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().liquidItem(index, listState),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = notice.cntTitle ?: "Senza titolo",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = notice.pubDT?.substringBefore("T") ?: "",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            if (!notice.attachments.isNullOrEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("Allegati:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                notice.attachments.forEach { attachment ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { viewModel.downloadNoticeAttachment(notice, attachment) }
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.AttachFile, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = attachment.fileName ?: "Allegato",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
-                            }
-                        } else if (notice.cntHasAttach == true) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AttachFile, null, modifier = Modifier.size(16.dp))
-                                Text("Allegato disponibile (scarica per visualizzare)", style = MaterialTheme.typography.labelSmall)
+                            } else if (notice.cntHasAttach == true) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.AttachFile, null, modifier = Modifier.size(16.dp))
+                                    Text("Allegato disponibile (scarica per visualizzare)", style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Floating Search Bar
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 24.dp, vertical = 12.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp,
+            tonalElevation = 2.dp
+        ) {
+            TextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Cerca tra le comunicazioni...") },
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Pulisci")
+                        }
+                    }
+                },
+                singleLine = true,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                )
+            )
         }
     }
 }
@@ -1112,122 +1447,140 @@ fun NoticeboardTabSection(viewModel: MainViewModel, notices: List<NoticeRemoteMo
 fun DidacticsTabSection(viewModel: MainViewModel, teachers: List<TeacherRemoteModel>) {
     var selectedTeacher by remember { mutableStateOf<TeacherRemoteModel?>(null) }
     var selectedFolder by remember { mutableStateOf<FolderRemoteModel?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    BackHandler(enabled = selectedTeacher != null) {
-        if (selectedFolder != null) selectedFolder = null
+    BackHandler(enabled = selectedTeacher != null || searchQuery.isNotEmpty()) {
+        if (searchQuery.isNotEmpty()) searchQuery = ""
+        else if (selectedFolder != null) selectedFolder = null
         else selectedTeacher = null
     }
 
-    AnimatedContent(
-        targetState = Triple(selectedTeacher, selectedFolder, teachers),
-        transitionSpec = {
-            fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
-        },
-        label = "DidacticsContentTransition"
-    ) { (teacher, folder, allTeachers) ->
-        when {
-            folder != null && teacher != null -> {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { selectedFolder = null }.liquidItem(0, listState)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(folder.folderName ?: "Cartella", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (folder.contents.isEmpty()) {
-                        item { EmptyState("Cartella vuota") }
-                    } else {
-                        itemsIndexed(folder.contents) { index, content ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .liquidItem(index + 1, listState)
-                                    .clickable { viewModel.downloadDidacticFile(content) },
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-                            ) {
-                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Description, null, tint = MaterialTheme.colorScheme.primary)
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Column {
-                                        Text(content.contentName ?: "Senza nome", fontWeight = FontWeight.Bold)
-                                        Text(content.contentType ?: "File", style = MaterialTheme.typography.bodySmall)
+    Box(modifier = Modifier.fillMaxSize()) {
+        val filteredTeachers = remember(teachers, searchQuery) {
+            if (searchQuery.isBlank()) teachers
+            else teachers.filter { teacher ->
+                (teacher.teacherName ?: "").contains(searchQuery, ignoreCase = true) ||
+                        teacher.folders.any { folder ->
+                            (folder.folderName ?: "").contains(searchQuery, ignoreCase = true) ||
+                                    folder.contents.any { content ->
+                                        (content.contentName ?: "").contains(searchQuery, ignoreCase = true)
                                     }
-                                }
-                            }
                         }
-                    }
-                }
             }
-            teacher != null -> {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { selectedTeacher = null }.liquidItem(0, listState)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(teacher.teacherName ?: "Docente", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (teacher.folders.isEmpty()) {
-                        item { EmptyState("Nessuna cartella disponibile") }
-                    } else {
-                        itemsIndexed(teacher.folders) { index, folder ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth().liquidItem(index + 1, listState).clickable { selectedFolder = folder },
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-                            ) {
-                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.secondary)
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Text(folder.folderName ?: "Senza nome", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            else -> {
-                if (allTeachers.isEmpty()) {
-                    EmptyState("Nessun materiale disponibile")
-                } else {
+        }
+
+        AnimatedContent(
+            targetState = Triple(selectedTeacher, selectedFolder, filteredTeachers),
+            transitionSpec = {
+                fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+            },
+            label = "DidacticsContentTransition",
+            modifier = Modifier.fillMaxSize()
+        ) { (teacher, folder, allTeachers) ->
+            when {
+                folder != null && teacher != null -> {
                     LazyColumn(
                         state = listState,
                         contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        itemsIndexed(allTeachers) { index, teacher ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth().liquidItem(index, listState).clickable { selectedTeacher = teacher },
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                        item {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { selectedFolder = null }.liquidItem(0, listState)
                             ) {
-                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), modifier = Modifier.size(40.dp)) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(teacher.teacherName?.firstOrNull()?.toString() ?: "D", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(folder.folderName ?: "Cartella", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (folder.contents.isEmpty()) {
+                            item { EmptyState("Cartella vuota") }
+                        } else {
+                            itemsIndexed(folder.contents) { index, content ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .liquidItem(index + 1, listState)
+                                        .clickable { viewModel.downloadDidacticFile(content) },
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                                ) {
+                                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Description, null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Column {
+                                            Text(content.contentName ?: "Senza nome", fontWeight = FontWeight.Bold)
+                                            Text(content.contentType ?: "File", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Column {
-                                        Text(teacher.teacherName ?: "Docente", fontWeight = FontWeight.Bold)
-                                        Text("${teacher.folders.size} cartelle", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                }
+                teacher != null -> {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        item {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { selectedTeacher = null }.liquidItem(0, listState)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(teacher.teacherName ?: "Docente", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (teacher.folders.isEmpty()) {
+                            item { EmptyState("Nessuna cartella disponibile") }
+                        } else {
+                            itemsIndexed(teacher.folders) { index, folder ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().liquidItem(index + 1, listState).clickable { selectedFolder = folder },
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                                ) {
+                                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.secondary)
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Text(folder.folderName ?: "Senza nome", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    if (allTeachers.isEmpty()) {
+                        EmptyState(if (searchQuery.isEmpty()) "Nessun materiale disponibile" else "Nessun risultato per \"$searchQuery\"")
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = PaddingValues(top = 80.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            itemsIndexed(allTeachers) { index, teacher ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().liquidItem(index, listState).clickable { selectedTeacher = teacher },
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                                ) {
+                                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), modifier = Modifier.size(40.dp)) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(teacher.teacherName?.firstOrNull()?.toString() ?: "D", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Column {
+                                            Text(teacher.teacherName ?: "Docente", fontWeight = FontWeight.Bold)
+                                            Text("${teacher.folders.size} cartelle", style = MaterialTheme.typography.bodySmall)
+                                        }
                                     }
                                 }
                             }
@@ -1236,13 +1589,53 @@ fun DidacticsTabSection(viewModel: MainViewModel, teachers: List<TeacherRemoteMo
                 }
             }
         }
+
+        // Floating Search Bar (Only shown in the main menu list)
+        if (selectedTeacher == null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp,
+                tonalElevation = 2.dp
+            ) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Cerca docente o materiale...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Pulisci")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    )
+                )
+            }
+        }
     }
 }
 
 @Composable
 fun SubjectsSummaryList(grades: List<GradeRemoteModel>, onSubjectClick: (String) -> Unit) {
     val listState = rememberLazyListState()
-    val grouped = grades.groupBy { it.subjectDesc ?: "Altro" }.toList()
+    val grouped = grades.groupBy { it.subjectDesc ?: "Altro" }
+        .toList()
+        .sortedByDescending { calculateAverage(it.second).replace(",", ".").toDoubleOrNull() ?: 0.0 }
+
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 140.dp),
@@ -1450,17 +1843,33 @@ fun AgendaTabSection(viewModel: MainViewModel, agenda: List<AgendaEventRemoteMod
     val itemPadding = 16.dp
     val contentPadding = (screenWidth - itemSize) / 2
 
-    val activeIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    val activeIndex by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (visibleItems.isEmpty()) pagerState.currentPage
+            else {
+                val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+                visibleItems.minByOrNull { 
+                    val itemCenter = it.offset + it.size / 2
+                    val diff = itemCenter - viewportCenter
+                    if (diff < 0) -diff else diff
+                }?.index ?: pagerState.currentPage
+            }
+        }
+    }
+
+    var isSyncing by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeIndex) {
-        if (listState.isScrollInProgress) {
+        if (!isSyncing && listState.isScrollInProgress && !pagerState.isScrollInProgress) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             pagerState.scrollToPage(activeIndex)
         }
     }
 
     LaunchedEffect(pagerState.currentPage) {
-        if (!listState.isScrollInProgress) {
+        if (!isSyncing && pagerState.currentPage != activeIndex && !listState.isScrollInProgress) {
             listState.animateScrollToItem(pagerState.currentPage)
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
@@ -1506,7 +1915,13 @@ fun AgendaTabSection(viewModel: MainViewModel, agenda: List<AgendaEventRemoteMod
                                     if (isSelected) {
                                         isCalendarVisible = true
                                     } else {
-                                        coroutineScope.launch { pagerState.animateScrollToPage(index) }
+                                        coroutineScope.launch {
+                                            isSyncing = true
+                                            val p1 = launch { pagerState.animateScrollToPage(index) }
+                                            val p2 = launch { listState.animateScrollToItem(index) }
+                                            joinAll(p1, p2)
+                                            isSyncing = false
+                                        }
                                     }
                                 }
                         ) {
@@ -1556,26 +1971,41 @@ fun AgendaTabSection(viewModel: MainViewModel, agenda: List<AgendaEventRemoteMod
                 }
             }
         }
+    }
 
-        AnimatedVisibility(
-            visible = isCalendarVisible,
-            enter = expandIn(expandFrom = Alignment.TopCenter, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400)),
-            exit = shrinkOut(shrinkTowards = Alignment.TopCenter, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+    if (isCalendarVisible) {
+        Dialog(
+            onDismissRequest = { isCalendarVisible = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            CustomCalendarOverlay(
-                initialDate = days[pagerState.currentPage],
-                onDateSelected = { calendar ->
-                    val targetDateStr = sdfFull.format(calendar.time)
-                    val targetIndex = days.indexOfFirst { sdfFull.format(it.time) == targetDateStr }
-                    if (targetIndex != -1) {
-                        coroutineScope.launch {
-                            pagerState.scrollToPage(targetIndex)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { isCalendarVisible = false },
+                contentAlignment = Alignment.Center
+            ) {
+                CustomCalendarOverlay(
+                    initialDate = days[pagerState.currentPage],
+                    onDateSelected = { calendar ->
+                        val targetDateStr = sdfFull.format(calendar.time)
+                        val targetIndex = days.indexOfFirst { sdfFull.format(it.time) == targetDateStr }
+                        if (targetIndex != -1) {
+                            coroutineScope.launch {
+                                isSyncing = true
+                                val p1 = launch { pagerState.animateScrollToPage(targetIndex) }
+                                val p2 = launch { listState.animateScrollToItem(targetIndex) }
+                                joinAll(p1, p2)
+                                isSyncing = false
+                            }
                         }
-                    }
-                    isCalendarVisible = false
-                },
-                onClose = { isCalendarVisible = false }
-            )
+                        isCalendarVisible = false
+                    },
+                    onClose = { isCalendarVisible = false }
+                )
+            }
         }
     }
 }
@@ -1607,12 +2037,17 @@ fun CustomCalendarOverlay(
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth(0.9f)
+            .wrapContentHeight()
+            .clickable(enabled = false) {}, // Prevent clicks through to background
+        shape = RoundedCornerShape(32.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(
@@ -1621,102 +2056,87 @@ fun CustomCalendarOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Scegli una data",
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black)
+                    text = monthName.replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, null, modifier = Modifier.size(32.dp))
+                Row {
+                    IconButton(onClick = {
+                        val next = viewMonth.clone() as Calendar
+                        next.add(Calendar.MONTH, -1)
+                        viewMonth = next
+                    }) {
+                        Icon(Icons.Default.ChevronLeft, null)
+                    }
+                    IconButton(onClick = {
+                        val next = viewMonth.clone() as Calendar
+                        next.add(Calendar.MONTH, 1)
+                        viewMonth = next
+                    }) {
+                        Icon(Icons.Default.ChevronRight, null)
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Card(
-                modifier = Modifier.fillMaxWidth().wrapContentHeight(),
-                shape = RoundedCornerShape(32.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = {
-                            val next = viewMonth.clone() as Calendar
-                            next.add(Calendar.MONTH, -1)
-                            viewMonth = next
-                        }) {
-                            Icon(Icons.Default.ChevronLeft, null)
-                        }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf("L", "M", "M", "G", "V", "S", "D").forEach { day ->
+                    Text(
+                        text = day,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
+                }
+            }
 
-                        Text(
-                            text = monthName.uppercase(),
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 1.sp
-                            )
-                        )
+            Spacer(modifier = Modifier.height(8.dp))
 
-                        IconButton(onClick = {
-                            val next = viewMonth.clone() as Calendar
-                            next.add(Calendar.MONTH, 1)
-                            viewMonth = next
-                        }) {
-                            Icon(Icons.Default.ChevronRight, null)
-                        }
-                    }
+            val sdfDay = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+            val todayStr = sdfDay.format(Calendar.getInstance().time)
+            val initialDateStr = sdfDay.format(initialDate.time)
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                daysInMonth.chunked(7).forEach { week ->
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        listOf("L", "M", "M", "G", "V", "S", "D").forEach { day ->
-                            Text(
-                                text = day,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                                )
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(7),
-                        modifier = Modifier.height(300.dp),
-                        userScrollEnabled = false
-                    ) {
-                        items(daysInMonth) { date ->
+                        week.forEach { day ->
                             Box(
                                 modifier = Modifier
+                                    .weight(1f)
                                     .aspectRatio(1f)
-                                    .padding(4.dp)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (date != null) {
-                                            Modifier
-                                                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant))
-                                                .clickable { onDateSelected(date) }
-                                        } else Modifier
-                                    ),
+                                    .padding(2.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (date != null) {
-                                    val isToday = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(date.time) ==
-                                            SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Calendar.getInstance().time)
-
-                                    Text(
-                                        text = date.get(Calendar.DAY_OF_MONTH).toString(),
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    )
+                                if (day != null) {
+                                    val isToday = sdfDay.format(day.time) == todayStr
+                                    val isSelected = sdfDay.format(day.time) == initialDateStr
+                                    
+                                    Surface(
+                                        onClick = { onDateSelected(day) },
+                                        shape = CircleShape,
+                                        color = when {
+                                            isSelected -> MaterialTheme.colorScheme.primary
+                                            isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                            else -> Color.Transparent
+                                        },
+                                        contentColor = when {
+                                            isSelected -> MaterialTheme.colorScheme.onPrimary
+                                            else -> MaterialTheme.colorScheme.onSurface
+                                        }
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = day.get(Calendar.DAY_OF_MONTH).toString(),
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1731,6 +2151,7 @@ fun CustomCalendarOverlay(
 fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
     var isAppearanceOpen by remember { mutableStateOf(false) }
     var isAiModelOpen by remember { mutableStateOf(false) }
+    var isAboutOpen by remember { mutableStateOf(false) }
     var showExperimentalDialog by remember { mutableStateOf(false) }
 
     if (showExperimentalDialog) {
@@ -1754,9 +2175,10 @@ fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
         )
     }
 
-    BackHandler(enabled = isAppearanceOpen || isAiModelOpen) {
+    BackHandler(enabled = isAppearanceOpen || isAiModelOpen || isAboutOpen) {
         isAppearanceOpen = false
         isAiModelOpen = false
+        isAboutOpen = false
     }
 
     if (isAppearanceOpen) {
@@ -1780,6 +2202,8 @@ fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
             viewModel = viewModel,
             onBack = { isAiModelOpen = false }
         )
+    } else if (isAboutOpen) {
+        AboutPage(onBack = { isAboutOpen = false })
     } else {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -1868,45 +2292,24 @@ fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
                 item {
                     SettingsCategory("Smarty AI") {
                         SettingsItem(
-                            icon = Icons.Default.Chat,
-                            title = "Smarty Chat",
-                            subtitle = if (viewModel.isChatEnabled) "Attivata" else "Disattivata",
-                            trailing = {
-                                Switch(
-                                    checked = viewModel.isChatEnabled,
-                                    onCheckedChange = { viewModel.toggleChat(it) }
-                                )
-                            },
-                            onClick = { viewModel.toggleChat(!viewModel.isChatEnabled) }
-                        )
-                        if (viewModel.isChatEnabled) {
-                            SettingsItem(
-                                icon = Icons.Default.Psychology,
-                                title = "Modello AI",
-                                subtitle = viewModel.currentModel?.displayName
-                                    ?: viewModel.selectedAiModelName,
-                                onClick = { isAiModelOpen = true }
-                            )
-                        }
-                        SettingsItem(
-                            icon = Icons.Default.HistoryEdu,
-                            title = "AI Brief",
-                            subtitle = "Riassunto automatico agenda",
-                            trailing = {
-                                Switch(
-                                    checked = viewModel.isAiBriefEnabled,
-                                    onCheckedChange = { viewModel.toggleAiBrief(it) }
-                                )
-                            },
-                            onClick = { viewModel.toggleAiBrief(!viewModel.isAiBriefEnabled) }
-                        )
-                        SettingsItem(
-                            icon = Icons.Default.Gavel,
-                            title = "Note legali AI",
-                            subtitle = "Termini e limitazioni",
-                            onClick = { /* Mostra disclaimer o apri URL */ }
+                            icon = Icons.Default.AutoAwesome,
+                            title = "Assistente Smarty",
+                            subtitle = if (viewModel.isChatEnabled || viewModel.isAiBriefEnabled) "Configurato" else "Configura assistente locale",
+                            onClick = { isAiModelOpen = true }
                         )
                     }
+                }
+            }
+
+            // Info Section
+            item {
+                SettingsCategory("Informazioni") {
+                    SettingsItem(
+                        icon = Icons.Default.Info,
+                        title = "Informazioni",
+                        subtitle = "Smart Register v1.0",
+                        onClick = { isAboutOpen = true }
+                    )
                 }
             }
 
@@ -1932,8 +2335,203 @@ fun SettingsSection(viewModel: MainViewModel, onLogout: () -> Unit) {
 }
 
 @Composable
+fun AboutPage(onBack: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        TopAppBar(
+            title = { Text("Informazioni") },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                }
+            }
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // App Info Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Use our custom AppLogo composable
+                        AppLogo(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                        )
+                        
+                        Spacer(modifier = Modifier.width(20.dp))
+                        Column {
+                            Text(
+                                text = "Smart Register",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "1.0.0",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "STABILE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Developer Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Image(
+                            painter = painterResource(id = com.afloria.smartregister.R.drawable.profile_pic),
+                            contentDescription = "Mattia Floria",
+                            modifier = Modifier
+                                .size(100.dp)
+                                .clip(CircleShape)
+                                .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Mattia Floria",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Sviluppatore Capo",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            SocialButton(
+                                icon = Icons.Default.Language,
+                                onClick = { uriHandler.openUri("https://floriatechlab.it") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            SocialButton(
+                                iconPath = "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.305-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.372.82 1.102.82 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z", // GitHub
+                                onClick = { uriHandler.openUri("https://github.com/mattia-floria") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            SocialButton(
+                                iconPath = "M12 2c2.717 0 3.056.01 4.122.06 1.065.05 1.79.22 2.428.47a4.9 4.9 0 0 1 1.77 1.15 4.9 4.9 0 0 1 1.15 1.77c.25.637.42 1.363.47 2.428.05 1.066.06 1.405.06 4.122s-.01 3.056-.06 4.122c-.05 1.065-.22 1.79-.47 2.428a4.9 4.9 0 0 1-1.15 1.77 4.9 4.9 0 0 1-1.77 1.15c-.638.25-1.363.42-2.428.47-1.066.05-1.405.06-4.122.06s-3.056-.01-4.122-.06c-1.065-.05-1.79-.22-2.428-.47a4.9 4.9 0 0 1-1.77-1.15 4.9 4.9 0 0 1-1.15-1.77c-.25-.637-.42-1.363-.47-2.428C2.01 15.056 2 14.717 2 12s.01-3.056.06-4.122c.05-1.065.22-1.79.47-2.428a4.9 4.9 0 0 1 1.15-1.77 4.9 4.9 0 0 1 1.77-1.15c.637-.25 1.363-.42 2.428-.47C8.944 2.01 9.283 2 12 2zm0 1.8c-2.67 0-2.987.01-4.042.059-1.01.045-1.56.213-1.924.354a3.1 3.1 0 0 0-1.144.745 3.1 3.1 0 0 0-.745 1.144c-.14.364-.31.914-.354 1.924C3.81 8.987 3.8 9.33 3.8 12s.01 2.987.059 4.042c.045 1.01.213 1.56.354 1.924a3.1 3.1 0 0 0 .745 1.144 3.1 3.1 0 0 0 1.144.745c.364.14.914.31 1.924.354 1.055.048 1.37.059 4.042.059s2.987-.01 4.042-.059c1.01-.045 1.56-.213 1.924-.354a3.1 3.1 0 0 0 1.144-.745 3.1 3.1 0 0 0 .745-1.144c.14-.364.31-.914.354-1.924.048-1.055.059-1.37.059-4.042s-.01-2.987-.059-4.042c-.045-1.01-.213-1.56-.354-1.924a3.1 3.1 0 0 0-.745-1.144 3.1 3.1 0 0 0-1.144-.745c-.364-.14-.914-.31-1.924-.354-1.055-.048-1.37-.059-4.042-.059zM12 6.865a5.135 5.135 0 1 1 0 10.27 5.135 5.135 0 0 1 0-10.27zm0 1.8a3.335 3.335 0 1 0 0 6.67 3.335 3.335 0 0 0 0-6.67zM17.335 5.465a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z", // Instagram Improved Path
+                                onClick = { uriHandler.openUri("https://instagram.com/mattia_floria") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            item {
+                Text(
+                    text = "Smart Register è un progetto indipendente non affiliato a Spaggiari ClasseViva.",
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SocialButton(
+    icon: ImageVector? = null,
+    iconPath: String? = null,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val vector = remember(icon, iconPath) {
+        if (icon != null) return@remember icon
+        if (iconPath != null) {
+            try {
+                ImageVector.Builder(
+                    name = "SocialIcon",
+                    defaultWidth = 24.dp,
+                    defaultHeight = 24.dp,
+                    viewportWidth = 24f,
+                    viewportHeight = 24f
+                ).addPath(
+                    pathData = PathParser().parsePathString(iconPath).toNodes(),
+                    fill = SolidColor(Color.White),
+                    pathFillType = PathFillType.EvenOdd
+                ).build()
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+    }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(56.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = vector ?: Icons.Default.Link,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
     val listState = rememberLazyListState()
+    val context = LocalContext.current
+    
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            uri?.let { viewModel.importModelFromUri(it) }
+        }
+    )
     
     Box(
         modifier = Modifier
@@ -1950,7 +2548,7 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             TopAppBar(
-                title = { Text("Motori AI", fontWeight = FontWeight.Bold) },
+                title = { Text("Intelligenza Artificiale", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
@@ -1968,167 +2566,206 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                 item {
                     Column(modifier = Modifier.liquidItem(0, listState).padding(bottom = 8.dp)) {
                         Text(
-                            text = "Scegli il motore dell'assistente",
+                            text = "Potenzia il tuo registro",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Personalizza l'esperienza di analisi del registro.",
+                            text = "Attiva le funzioni avanzate basate su Gemma 3.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                val models = AiModels.ALL_MODELS
-
-                models.forEachIndexed { index, model ->
-                    item {
-                        val isSelected = viewModel.selectedAiModelName == model.name
-                        val animatedScale by animateFloatAsState(if (isSelected) 1.02f else 1f, label = "cardScale")
-                        
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .scale(animatedScale)
-                                .liquidItem(index + 1, listState)
-                                .clickable {
-                                    if (isSelected && viewModel.isModelDownloading) {
-                                        // Already downloading feedback
-                                    } else {
-                                        viewModel.switchAiModel(model.name)
-                                    }
-                                },
-                            shape = RoundedCornerShape(32.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
-                                                 else MaterialTheme.colorScheme.surfaceContainerHigh
-                            ),
-                            border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)) else null,
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 8.dp else 0.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        if (isSelected) {
-                                            Brush.linearGradient(
-                                                colors = listOf(
-                                                    Color.Transparent,
-                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                                )
-                                            )
-                                        } else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                // Sezione Toggle Funzioni
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().liquidItem(1, listState),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                    ) {
+                        Column {
+                            SettingsItem(
+                                icon = Icons.Default.ChatBubbleOutline,
+                                title = "Chat Smarty",
+                                subtitle = "Parla con il tuo registro per analisi e consigli.",
+                                trailing = {
+                                    Switch(
+                                        checked = viewModel.isChatEnabled,
+                                        onCheckedChange = { viewModel.toggleChat(it) }
                                     )
-                                    .padding(24.dp)
-                            ) {
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                            modifier = Modifier.size(48.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    if (model.name.contains("gemma")) Icons.Default.Lightbulb else Icons.Default.FlashOn,
-                                                    null,
-                                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = model.displayName,
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                },
+                                onClick = { viewModel.toggleChat(!viewModel.isChatEnabled) }
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                            SettingsItem(
+                                icon = Icons.Default.AutoAwesome,
+                                title = "AI Brief",
+                                subtitle = "Riassunto intelligente degli eventi in dashboard.",
+                                trailing = {
+                                    Switch(
+                                        checked = viewModel.isAiBriefEnabled,
+                                        onCheckedChange = { viewModel.toggleAiBrief(it) }
+                                    )
+                                },
+                                onClick = { viewModel.toggleAiBrief(!viewModel.isAiBriefEnabled) }
+                            )
+                        }
+                    }
+                }
+
+                // Sezione Download Modelli
+                itemsIndexed(AiModels.ALL_MODELS) { index, model ->
+                    val isSelected = viewModel.selectedAiModelName == model.name
+                    val isReady = isSelected && viewModel.isLlmReady
+                    val isInitializing = isSelected && viewModel.isLlmInitializing
+                    val isDownloading = isSelected && viewModel.isModelDownloading
+                    
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .liquidItem(index + 2, listState),
+                        shape = RoundedCornerShape(32.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isReady) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                             else if (isInitializing) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                                             else if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh
+                                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        ),
+                        onClick = { if (!isSelected) viewModel.switchAiModel(model.name) }
+                    ) {
+                        Column(modifier = Modifier.padding(24.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isReady) MaterialTheme.colorScheme.primary
+                                            else if (isInitializing) MaterialTheme.colorScheme.tertiary
+                                            else if (isSelected) MaterialTheme.colorScheme.surfaceVariant
+                                            else MaterialTheme.colorScheme.outlineVariant,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        if (isInitializing) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                                color = MaterialTheme.colorScheme.onTertiary,
+                                                strokeWidth = 2.dp
                                             )
-                                            if (isSelected) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(8.dp)
-                                                            .clip(CircleShape)
-                                                            .background(MaterialTheme.colorScheme.primary)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(
-                                                        text = if (viewModel.isModelDownloading) "Scaricamento..." else "Motore attivo",
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        if (isSelected && !viewModel.isModelDownloading) {
+                                        } else {
                                             Icon(
-                                                Icons.Default.CheckCircle,
+                                                if (isReady) Icons.Default.Check else Icons.Default.CloudDownload,
                                                 null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(28.dp)
+                                                tint = if (isReady) MaterialTheme.colorScheme.onPrimary 
+                                                       else if (isSelected) MaterialTheme.colorScheme.primary
+                                                       else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = model.displayName,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = when {
+                                            isReady -> "Pronto all'uso"
+                                            isInitializing -> "Inizializzazione in corso..."
+                                            isDownloading -> "Scaricamento in corso..."
+                                            isSelected -> "Richiesto per le funzioni AI"
+                                            else -> model.info
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = when {
+                                            isReady -> MaterialTheme.colorScheme.primary
+                                            isInitializing -> MaterialTheme.colorScheme.tertiary
+                                            isSelected -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        }
+                                    )
+                                }
+                            }
+                            
+                            if (isSelected) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                if (isDownloading) {
+                                    LinearProgressIndicator(
+                                        progress = { viewModel.modelDownloadProgress },
+                                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "${(viewModel.modelDownloadProgress * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.align(Alignment.End)
+                                    )
+                                } else if (viewModel.modelDownloadError != null) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
+                                            .padding(12.dp)
+                                    ) {
+                                        Text(
+                                            text = "Errore: ${viewModel.modelDownloadError}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Button(
+                                            onClick = { viewModel.downloadCurrentModel() },
+                                            modifier = Modifier.align(Alignment.End),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.error
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Riprova", style = MaterialTheme.typography.labelMedium)
+                                        }
+                                    }
+                                } else if (!isInitializing) {
+                                    Button(
+                                        onClick = { viewModel.downloadCurrentModel() },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isReady) MaterialTheme.colorScheme.secondary 
+                                                             else MaterialTheme.colorScheme.primary
+                                        )
+                                    ) {
+                                        Icon(if (isReady) Icons.Default.Refresh else Icons.Default.Download, null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        val sizeMb = model.sizeInBytes / 1_000_000
+                                        Text(if (isReady) "Riscarica Modello" else "Scarica Modello (${sizeMb}MB)")
                                     }
                                     
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = model.info,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        lineHeight = 22.sp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                                else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-
-                                    if (isSelected && viewModel.isModelDownloading) {
-                                        Spacer(modifier = Modifier.height(20.dp))
-                                        Column {
-                                            LinearProgressIndicator(
-                                                progress = { viewModel.modelDownloadProgress },
-                                                modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
-                                                color = MaterialTheme.colorScheme.primary,
-                                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                            )
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Text(
-                                                text = "${(viewModel.modelDownloadProgress * 100).toInt()}% completato",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                modifier = Modifier.align(Alignment.End)
-                                            )
-                                        }
-                                    } else if (isSelected) {
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.End,
-                                            verticalAlignment = Alignment.CenterVertically
+                                    if (isReady) {
+                                        TextButton(
+                                            onClick = { viewModel.deleteSelectedModel() },
+                                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                                         ) {
-                                            if (viewModel.isLlmReady) {
-                                                TextButton(
-                                                    onClick = { viewModel.deleteSelectedModel() },
-                                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                                ) {
-                                                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text("Elimina", fontWeight = FontWeight.Bold)
-                                                }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-                                            
-                                            TextButton(
-                                                onClick = { viewModel.downloadCurrentModel() },
-                                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-                                            ) {
-                                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text("Riscarica", fontWeight = FontWeight.Bold)
-                                            }
+                                            Text("Elimina dati modello")
+                                        }
+                                    } else {
+                                        TextButton(
+                                            onClick = { launcher.launch(arrayOf("*/*")) },
+                                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                                        ) {
+                                            Icon(Icons.Default.FileUpload, null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Importa manualmente (.task)")
                                         }
                                     }
                                 }
@@ -2138,9 +2775,8 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                 }
                 
                 item {
-                    Spacer(modifier = Modifier.height(8.dp))
                     Card(
-                        modifier = Modifier.fillMaxWidth().liquidItem(models.size + 1, listState),
+                        modifier = Modifier.fillMaxWidth().liquidItem(AiModels.ALL_MODELS.size + 2, listState),
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.2f))
                     ) {
@@ -2148,15 +2784,10 @@ fun AiModelSelectionPage(viewModel: MainViewModel, onBack: () -> Unit) {
                             modifier = Modifier.padding(20.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Default.Info,
-                                null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.secondary)
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
-                                text = "L'esecuzione avviene interamente sul tuo dispositivo per garantire la massima privacy dei tuoi dati scolastici.",
+                                text = "L'AI elabora i dati localmente. Nessun dato del registro lascia mai il tuo telefono.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
@@ -2193,14 +2824,17 @@ fun SettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    enabled: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
+    val alpha = if (enabled) 1f else 0.5f
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .clickable(enabled = true) { onClick() }
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .graphicsLayer(alpha = alpha),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
@@ -2309,6 +2943,8 @@ fun AiModelDownloadCard(modelName: String, progress: Float) {
 
 @Composable
 fun GradeItem(grade: GradeRemoteModel, showSubject: Boolean = true) {
+    val doesNotCountForAverage = isNonContributing(grade)
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -2317,7 +2953,11 @@ fun GradeItem(grade: GradeRemoteModel, showSubject: Boolean = true) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(
                 shape = CircleShape,
-                color = if ((grade.decimalValue ?: 0.0) >= 6.0) Color(0xFF4CAF50) else Color(0xFFF44336),
+                color = when {
+                    doesNotCountForAverage -> Color(0xFF03A9F4) // Light Blue for non-contributing
+                    (grade.decimalValue ?: 0.0) >= 6.0 -> Color(0xFF4CAF50) // Green
+                    else -> Color(0xFFF44336) // Red
+                },
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -2328,6 +2968,14 @@ fun GradeItem(grade: GradeRemoteModel, showSubject: Boolean = true) {
             Column {
                 if (showSubject) Text(grade.subjectDesc ?: "Materia", fontWeight = FontWeight.Bold)
                 Text(grade.evtDate ?: "", style = MaterialTheme.typography.bodySmall)
+                if (doesNotCountForAverage) {
+                    Text(
+                        text = grade.componentDesc ?: "Non fa media",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 if (!grade.notesForFamily.isNullOrBlank()) {
                     Text(grade.notesForFamily, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
@@ -2371,34 +3019,72 @@ fun DashboardAgendaItem(event: AgendaEventRemoteModel, viewModel: MainViewModel)
             }
         }
 
-        DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { showMenu = false }
+        MaterialTheme(
+            shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(28.dp))
         ) {
-            DropdownMenuItem(
-                text = { Text("Copia") },
-                onClick = {
-                    viewModel.copyToClipboard(event.notes ?: "")
-                    showMenu = false
-                },
-                leadingIcon = { Icon(Icons.Default.ContentCopy, null) }
-            )
-            DropdownMenuItem(
-                text = { Text("Condividi") },
-                onClick = {
-                    viewModel.shareText(event.notes ?: "")
-                    showMenu = false
-                },
-                leadingIcon = { Icon(Icons.Default.Share, null) }
-            )
-            if (viewModel.isChatEnabled) {
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+                modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            ) {
+                val context = LocalContext.current
                 DropdownMenuItem(
-                    text = { Text("Spiega con Smarty") },
+                    text = { Text("Copia") },
                     onClick = {
-                        viewModel.explainWithSmarty(event)
+                        viewModel.copyToClipboard(event.notes ?: "")
                         showMenu = false
                     },
-                    leadingIcon = { Icon(Icons.Default.Psychology, null) }
+                    leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                )
+                DropdownMenuItem(
+                    text = { Text("Condividi") },
+                    onClick = {
+                        viewModel.shareText(event.notes ?: "")
+                        showMenu = false
+                    },
+                    leadingIcon = { Icon(Icons.Default.Share, null) },
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Spiega con Smarty",
+                            color = if (viewModel.isExperimentalEnabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    },
+                    onClick = {
+                        if (viewModel.isExperimentalEnabled) {
+                            viewModel.explainWithSmarty(event)
+                            showMenu = false
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "L'assistente locale Smarty è disabilitato, puoi attivarlo e impostarlo nelle impostazioni attivando le funzioni sperimentali",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Psychology,
+                            null,
+                            tint = if (viewModel.isExperimentalEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (viewModel.isExperimentalEnabled) MaterialTheme.colorScheme.surfaceContainerLowest
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
                 )
             }
         }
@@ -2431,34 +3117,72 @@ fun AgendaItem(event: AgendaEventRemoteModel, viewModel: MainViewModel) {
             }
         }
 
-        DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { showMenu = false }
+        MaterialTheme(
+            shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(28.dp))
         ) {
-            DropdownMenuItem(
-                text = { Text("Copia") },
-                onClick = {
-                    viewModel.copyToClipboard(event.notes ?: "")
-                    showMenu = false
-                },
-                leadingIcon = { Icon(Icons.Default.ContentCopy, null) }
-            )
-            DropdownMenuItem(
-                text = { Text("Condividi") },
-                onClick = {
-                    viewModel.shareText(event.notes ?: "")
-                    showMenu = false
-                },
-                leadingIcon = { Icon(Icons.Default.Share, null) }
-            )
-            if (viewModel.isChatEnabled) {
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+                modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            ) {
+                val context = LocalContext.current
                 DropdownMenuItem(
-                    text = { Text("Spiega con Smarty") },
+                    text = { Text("Copia") },
                     onClick = {
-                        viewModel.explainWithSmarty(event)
+                        viewModel.copyToClipboard(event.notes ?: "")
                         showMenu = false
                     },
-                    leadingIcon = { Icon(Icons.Default.Psychology, null) }
+                    leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                )
+                DropdownMenuItem(
+                    text = { Text("Condividi") },
+                    onClick = {
+                        viewModel.shareText(event.notes ?: "")
+                        showMenu = false
+                    },
+                    leadingIcon = { Icon(Icons.Default.Share, null) },
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Spiega con Smarty",
+                            color = if (viewModel.isExperimentalEnabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    },
+                    onClick = {
+                        if (viewModel.isExperimentalEnabled) {
+                            viewModel.explainWithSmarty(event)
+                            showMenu = false
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "L'assistente locale Smarty è disabilitato, puoi attivarlo e impostarlo nelle impostazioni attivando le funzioni sperimentali",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Psychology,
+                            null,
+                            tint = if (viewModel.isExperimentalEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (viewModel.isExperimentalEnabled) MaterialTheme.colorScheme.surfaceContainerLowest
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
                 )
             }
         }
@@ -2711,68 +3435,159 @@ fun FinalGradesTabSection(reports: List<SchoolReportRemoteModel>, onReportClick:
 
 @Composable
 fun TimetableTabSection(viewModel: MainViewModel) {
-    var selectedDay by remember { mutableIntStateOf(1) }
     val days = listOf("Lun", "Mar", "Mer", "Gio", "Ven", "Sab")
     val timetableData by viewModel.timetableData.collectAsState()
     var isEditing by remember { mutableStateOf(false) }
     var entryToEdit by remember { mutableStateOf<TimetableEntry?>(null) }
+    val maxPeriod = 9
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // Toolbar with Refresh action
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ScrollableTabRow(
-                selectedTabIndex = selectedDay - 1,
-                edgePadding = 0.dp,
-                containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.primary,
-                divider = {},
-                modifier = Modifier.weight(1f)
-            ) {
-                days.forEachIndexed { index, day ->
-                    Tab(
-                        selected = selectedDay == index + 1,
-                        onClick = { selectedDay = index + 1 },
-                        text = { Text(day) }
-                    )
-                }
-            }
-            
+            Text(
+                text = "Settimana Scolastica",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
             IconButton(onClick = { viewModel.generateTimetableFromAgenda() }) {
-                Icon(Icons.Default.Refresh, "Rigenera orario", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.AutoMode, "Rigenera", tint = MaterialTheme.colorScheme.primary)
             }
         }
 
-        val dayEntries = timetableData.entries.filter { it.dayOfWeek == selectedDay }.sortedBy { it.period }
-
-        Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            if (dayEntries.isEmpty()) {
-                EmptyState("Nessuna lezione inserita")
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(dayEntries) { entry ->
-                        TimetableEntryCard(entry, onEdit = {
-                            entryToEdit = it
-                            isEditing = true
-                        }, onDelete = {
-                            viewModel.deleteTimetableEntry(it)
-                        })
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Horizontal scrolling for the entire table
+            val scrollState = rememberScrollState()
+            
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(scrollState)
+            ) {
+                // Header Row (Days)
+                Row(
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(vertical = 12.dp)
+                ) {
+                    // Spacer for the "Hour" column
+                    Box(modifier = Modifier.width(50.dp))
+                    
+                    days.forEach { day ->
+                        Text(
+                            text = day,
+                            modifier = Modifier.width(120.dp),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
-            }
 
-            FloatingActionButton(
-                onClick = {
-                    entryToEdit = TimetableEntry(dayOfWeek = selectedDay, period = (dayEntries.maxOfOrNull { it.period } ?: 0) + 1, subjectName = "")
-                    isEditing = true
-                },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 140.dp),
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Icon(Icons.Default.Add, "Aggiungi")
+                // Table Body (Hours)
+                LazyColumn(
+                    modifier = Modifier.fillMaxHeight(),
+                    contentPadding = PaddingValues(bottom = 140.dp)
+                ) {
+                    items(maxPeriod) { index ->
+                        val period = index + 1
+                        
+                        Row(
+                            modifier = Modifier
+                                .drawWithContent {
+                                    drawContent()
+                                    drawLine(
+                                        color = Color.LightGray.copy(alpha = 0.5f),
+                                        start = Offset(0f, size.height),
+                                        end = Offset(size.width, size.height),
+                                        strokeWidth = 1f
+                                    )
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Hour Column (Fixed style)
+                            Box(
+                                modifier = Modifier
+                                    .width(50.dp)
+                                    .height(80.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${period}ª",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            // Day Columns
+                            days.forEachIndexed { dayIdx, _ ->
+                                val dayOfWeek = dayIdx + 1
+                                val entry = timetableData.entries.find { it.dayOfWeek == dayOfWeek && it.period == period }
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .width(120.dp)
+                                        .height(80.dp)
+                                        .background(if (entry != null) MaterialTheme.colorScheme.surface else Color.Transparent)
+                                        .clickable {
+                                            entryToEdit = entry ?: TimetableEntry(dayOfWeek = dayOfWeek, period = period, subjectName = "")
+                                            isEditing = true
+                                        }
+                                        .padding(4.dp)
+                                        .drawWithContent {
+                                            drawContent()
+                                            drawLine(
+                                                color = Color.LightGray.copy(alpha = 0.3f),
+                                                start = Offset(size.width, 0f),
+                                                end = Offset(size.width, size.height),
+                                                strokeWidth = 1f
+                                            )
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (entry != null) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = entry.subjectName,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (!entry.room.isNullOrBlank()) {
+                                                Text(
+                                                    text = entry.room,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.secondary,
+                                                    fontSize = 9.sp
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Icon(
+                                            Icons.Default.Add,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.outlineVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -2789,39 +3604,7 @@ fun TimetableTabSection(viewModel: MainViewModel) {
     }
 }
 
-@Composable
-fun TimetableEntryCard(entry: TimetableEntry, onEdit: (TimetableEntry) -> Unit, onDelete: (TimetableEntry) -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-    ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                modifier = Modifier.size(44.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(text = "${entry.period}ª", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(entry.subjectName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                if (!entry.room.isNullOrBlank()) {
-                    Text(entry.room, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                }
-            }
-            IconButton(onClick = { onEdit(entry) }) {
-                Icon(Icons.Default.Edit, "Modifica", tint = MaterialTheme.colorScheme.outline)
-            }
-            IconButton(onClick = { onDelete(entry) }) {
-                Icon(Icons.Default.Delete, "Elimina", tint = MaterialTheme.colorScheme.error)
-            }
-        }
-    }
-}
+
 
 @Composable
 fun EditTimetableDialog(entry: TimetableEntry, onDismiss: () -> Unit, onConfirm: (TimetableEntry) -> Unit) {
@@ -3136,7 +3919,7 @@ fun ChatBubble(message: ChatMessage) {
     }
 }
 
-private fun formatDate(dateStr: String?): String {
+fun formatDate(dateStr: String?): String {
     if (dateStr == null) return ""
     return try {
         val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -3148,8 +3931,22 @@ private fun formatDate(dateStr: String?): String {
     }
 }
 
-private fun calculateAverage(grades: List<GradeRemoteModel>): String {
-    val validGrades = grades.mapNotNull { it.decimalValue }
+fun isNonContributing(grade: GradeRemoteModel): Boolean {
+    val nonContributingTerms = listOf("non fa media", "voto blu", "blu")
+    val contentToCheck = listOfNotNull(
+        grade.componentDesc?.lowercase(),
+        grade.notesForFamily?.lowercase(),
+        grade.displayValue?.lowercase(),
+        grade.color?.lowercase()
+    )
+    return nonContributingTerms.any { term ->
+        contentToCheck.any { content -> content.contains(term) }
+    } || grade.decimalValue == null
+}
+
+fun calculateAverage(grades: List<GradeRemoteModel>): String {
+    val validGrades = grades.filter { !isNonContributing(it) }
+        .mapNotNull { it.decimalValue }
     if (validGrades.isEmpty()) return "0.0"
     return String.format(Locale.getDefault(), "%.2f", validGrades.average())
 }

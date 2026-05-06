@@ -48,23 +48,43 @@ class ModelDownloadManager(private val context: Context) {
     }
 
     fun getDownloadStatus(model: Model): Flow<ModelDownloadStatus> {
+        val modelFile = File(model.getPath(context))
+        
         return workManager.getWorkInfosByTagFlow(model.name).map { workInfos ->
-            val workInfo = workInfos.firstOrNull() ?: return@map ModelDownloadStatus(ModelDownloadStatusType.NOT_DOWNLOADED)
+            val workInfo = workInfos.firstOrNull()
+            
+            // Se il file esiste ed è di dimensioni ragionevoli, lo consideriamo scaricato
+            // (a meno che non ci sia un lavoro in corso che lo sta sovrascrivendo)
+            if (modelFile.exists() && modelFile.length() > 0 && (workInfo == null || workInfo.state != WorkInfo.State.RUNNING)) {
+                if (model.sizeInBytes <= 0 || modelFile.length() >= model.sizeInBytes) {
+                    return@map ModelDownloadStatus(ModelDownloadStatusType.SUCCEEDED)
+                }
+            }
+            
+            if (workInfo == null) return@map ModelDownloadStatus(ModelDownloadStatusType.NOT_DOWNLOADED)
             
             when (workInfo.state) {
                 WorkInfo.State.RUNNING -> {
                     val receivedBytes = workInfo.progress.getLong("receivedBytes", 0L)
+                    val totalBytes = workInfo.progress.getLong("totalBytes", model.sizeInBytes)
                     ModelDownloadStatus(
                         ModelDownloadStatusType.IN_PROGRESS,
-                        totalBytes = model.sizeInBytes,
+                        totalBytes = if (totalBytes > 0) totalBytes else model.sizeInBytes,
                         receivedBytes = receivedBytes
                     )
                 }
-                WorkInfo.State.SUCCEEDED -> ModelDownloadStatus(ModelDownloadStatusType.SUCCEEDED)
+                WorkInfo.State.SUCCEEDED -> {
+                    if (modelFile.exists() && modelFile.length() > 0) {
+                        ModelDownloadStatus(ModelDownloadStatusType.SUCCEEDED)
+                    } else {
+                        ModelDownloadStatus(ModelDownloadStatusType.NOT_DOWNLOADED)
+                    }
+                }
                 WorkInfo.State.FAILED -> ModelDownloadStatus(
                     ModelDownloadStatusType.FAILED,
                     errorMessage = workInfo.outputData.getString("error") ?: "Unknown error"
                 )
+                WorkInfo.State.CANCELLED -> ModelDownloadStatus(ModelDownloadStatusType.NOT_DOWNLOADED)
                 else -> ModelDownloadStatus(ModelDownloadStatusType.NOT_DOWNLOADED)
             }
         }
