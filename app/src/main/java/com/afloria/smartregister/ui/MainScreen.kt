@@ -979,13 +979,15 @@ fun ClasseVivaWebSection(viewModel: MainViewModel, onBack: () -> Unit) {
                                 if (url?.contains("login.php") == true) {
                                     val js = """
                                         (function() {
-                                            var uid = document.getElementById('uid');
-                                            var pwd = document.getElementById('pwd');
-                                            if (uid && pwd) {
+                                            var uid = document.getElementById('uid') || document.querySelector('input[name="uid"]');
+                                            var pwd = document.getElementById('pwd') || document.querySelector('input[name="pwd"]');
+                                            if (uid && pwd && uid.value === '' && pwd.value === '') {
                                                 uid.value = '$ident';
                                                 pwd.value = '$pass';
-                                                var btn = document.querySelector('button[type="submit"]') || document.querySelector('.btn-login');
-                                                if (btn) btn.click();
+                                                var btn = document.querySelector('button[type="submit"]') || document.querySelector('.btn-login') || document.querySelector('input[type="submit"]');
+                                                if (btn) {
+                                                    setTimeout(function() { btn.click(); }, 500);
+                                                }
                                             }
                                         })();
                                     """.trimIndent()
@@ -995,6 +997,9 @@ fun ClasseVivaWebSection(viewModel: MainViewModel, onBack: () -> Unit) {
                         }
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.setSupportZoom(true)
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
                         settings.useWideViewPort = true
                         settings.loadWithOverviewMode = true
                         settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
@@ -1023,6 +1028,9 @@ fun WebViewScreen(url: String, token: String?, title: String, onBack: () -> Unit
                     webViewClient = WebViewClient()
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    settings.setSupportZoom(true)
+                    settings.builtInZoomControls = true
+                    settings.displayZoomControls = false
                     if (token != null) {
                         loadUrl(url, headers)
                     } else {

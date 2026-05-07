@@ -79,7 +79,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val authInterceptor = Interceptor { chain ->
         val request = chain.request().newBuilder()
             .header("User-Agent", "CVVS/std/4.2.3")
-            .header("Z-Dev-Apikey", "") // Rimossa API Key per sicurezza
+            .header("Z-Dev-Apikey", "Tg1NWEwNGIgIC0K")
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .build()
@@ -458,7 +458,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (!isAutoLogin) _isLoading.value = true
             _errorMessage.value = null
             tempPass = pass
-            val cleanIdent = if (ident.contains("@")) ident.trim() else ident.trim().uppercase()
+            val cleanIdent = ident.trim()
             try {
                 val response = api.login(LoginRequest(ident = cleanIdent, pass = pass, uid = cleanIdent))
                 

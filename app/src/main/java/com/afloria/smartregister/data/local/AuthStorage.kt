@@ -16,7 +16,15 @@ class AuthStorage(private val context: Context) {
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
 
-    private val sharedPreferences = EncryptedSharedPreferences.create(
+    private val sharedPreferences = try {
+        createEncryptedPrefs()
+    } catch (e: Exception) {
+        // Fallback for corrupted Keystore/Prefs
+        context.deleteSharedPreferences("auth_prefs")
+        createEncryptedPrefs()
+    }
+
+    private fun createEncryptedPrefs() = EncryptedSharedPreferences.create(
         context,
         "auth_prefs",
         masterKey,

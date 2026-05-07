@@ -71,6 +71,14 @@ fun WelcomeContent(onContinue: () -> Unit) {
         horizontalAlignment = Alignment.Start
     ) {
         Spacer(modifier = Modifier.height(48.dp))
+
+        AppLogo(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(RoundedCornerShape(20.dp))
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
         
         Text(
             text = "Benvenuto in\nSmart Register",

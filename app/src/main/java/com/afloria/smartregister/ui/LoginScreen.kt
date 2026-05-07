@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -42,6 +43,14 @@ fun LoginScreen(
             horizontalAlignment = Alignment.Start
         ) {
             Spacer(modifier = Modifier.height(80.dp))
+
+            AppLogo(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(16.dp))
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
 
             Text(
                 text = "Accedi",
