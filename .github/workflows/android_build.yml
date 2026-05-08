@@ -1,9 +1,11 @@
-name: Android CI/CD Smart Register
+name: Android CI
 
 on:
   push:
-    tags:
-      - 'v*' # Si attiva quando lanci il tuo script release.bat
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Ti permette di farlo partire a comando dalla tab Actions
 
 jobs:
   build:
@@ -12,44 +14,52 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease
+    - name: Build Release APK
+      run: ./gradlew assembleRelease
 
-      - name: Sign APK
-        uses: r0adkll/sign-android-release@v1
-        id: sign_app
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.KEYSTORE }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-        env:
-          BUILD_TOOLS_VERSION: "34.0.0"
+    - name: Sign APK
+      uses: r0adkll/sign-android-release@v1
+      id: sign_app
+      with:
+        releaseDirectory: app/build/outputs/apk/release
+        signingKeyBase64: ${{ secrets.KEYSTORE_FILE }}
+        alias: ${{ secrets.KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+        keyPassword: ${{ secrets.KEY_PASSWORD }}
+      env:
+        BUILD_TOOLS_VERSION: "34.0.0"
 
-      - name: Rename Signed APK
-        run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/smart-register.apk
+    - name: Rename Signed APK
+      run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/PhotoTinder.apk
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: app/build/outputs/apk/release/smart-register.apk
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name != 'pull_request'
+      with:
+        tag_name: latest-build
+        name: "Smart-register"
+        body: |
+          🚀 **Latest signed build created successfully**
+          This apk is ready and signed.
+        draft: false
+        prerelease: false
+        # Carica solo il file rinominato, ignorando quelli "unsigned"
+        files: app/build/outputs/apk/release/PhotoTinder.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
