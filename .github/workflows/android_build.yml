@@ -1,13 +1,16 @@
-name: Android CI/CD
+name: Android CI/CD + Auto Sign
 
 on:
   push:
     tags:
-      - 'v*' # Si attiva quando crei un tag (es. v1.0.1)
+      - 'v*' # Si attiva solo quando crei un tag che inizia con v (es. v1.0.1)
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Necessario per caricare l'APK nelle Release
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,10 +28,22 @@ jobs:
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
+      # Questo step prende l'APK "unsigned" e lo firma usando i tuoi segreti
+      - name: Sign Android APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.KEYSTORE }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      # Crea la release e carica il file firmato (non quello unsigned!)
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: app/build/outputs/apk/release/*.apk
-          generate_release_notes: true # Genera automaticamente il changelog dai commit
+          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
