@@ -22,7 +22,6 @@ jobs:
           distribution: 'temurin'
           cache: gradle[cite: 4]
 
-      # Questo step risolve l'errore "Couldnt find the Android build tools"
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3[cite: 3]
 
@@ -40,16 +39,16 @@ jobs:
           signingKeyBase64: ${{ secrets.KEYSTORE }}
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}[cite: 4]
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+          # FORZA LA VERSIONE DEI TOOLS PER EVITARE L'ERRORE 29.0.3
+          buildToolsVersion: 34.0.0[cite: 3]
 
-      # Rinomina l'APK firmato in smart-register.apk
       - name: Rename Signed APK
         run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/smart-register.apk[cite: 4]
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          # Carica solo il file finale rinominato
           files: app/build/outputs/apk/release/smart-register.apk
           generate_release_notes: true[cite: 4]
         env:
