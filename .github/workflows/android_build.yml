@@ -1,15 +1,15 @@
-name: Android CI/CD + Auto Sign
+name: Android CI/CD + Auto Sign & Rename
 
 on:
   push:
     tags:
-      - 'v*' # Si attiva solo quando crei un tag che inizia con v (es. v1.0.1)
+      - 'v*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Necessario per caricare l'APK nelle Release
+      contents: write
 
     steps:
       - name: Checkout code
@@ -28,7 +28,6 @@ jobs:
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
-      # Questo step prende l'APK "unsigned" e lo firma usando i tuoi segreti
       - name: Sign Android APK
         uses: r0adkll/sign-android-release@v1
         id: sign_app
@@ -39,11 +38,15 @@ jobs:
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      # Crea la release e carica il file firmato (non quello unsigned!)
+      # Questo passaggio rinomina l'APK firmato
+      - name: Rename Signed APK
+        run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/smart-register.apk
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          # Qui diciamo a GitHub di caricare solo il file rinominato
+          files: app/build/outputs/apk/release/smart-register.apk
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
