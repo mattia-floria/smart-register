@@ -2,10 +2,10 @@ name: Android CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master", "main" ]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch: # Ti permette di farlo partire a comando dalla tab Actions
+    branches: [ "master", "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -54,13 +54,15 @@ jobs:
       env:
         COMMIT_MSG: ${{ github.event.head_commit.message }}
       run: |
-        # Use grep to find a version like v1.0.1 or v1.0.1-beta
-        VERSION=$(echo "$COMMIT_MSG" | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)??" | head -n 1)
+        # Use grep to find a version like v1.0.1 or V1.0.1 (case-insensitive)
+        VERSION=$(echo "$COMMIT_MSG" | grep -oiE "v[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)??" | head -n 1)
         
         if [ -n "$VERSION" ]; then
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Normalize to lowercase 'v' for the tag if found
+          TAG=$(echo "$VERSION" | tr 'A-Z' 'a-z')
+          echo "version=$TAG" >> $GITHUB_OUTPUT
           echo "release=true" >> $GITHUB_OUTPUT
-          echo "Found version: $VERSION"
+          echo "Found version: $TAG"
         else
           echo "release=false" >> $GITHUB_OUTPUT
           echo "No version found in commit message."
