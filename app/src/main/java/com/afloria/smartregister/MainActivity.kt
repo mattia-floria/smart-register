@@ -41,7 +41,13 @@ class MainActivity : ComponentActivity() {
                 themeMode = viewModel.themeMode,
                 seedColor = viewModel.selectedSeedColor,
                 secondaryColor = viewModel.selectedSecondaryColor,
-                tertiaryColor = viewModel.selectedTertiaryColor
+                tertiaryColor = viewModel.selectedTertiaryColor,
+                fontFamily = viewModel.selectedFontFamily,
+                fontWeight = viewModel.selectedFontWeight,
+                                fontWidth = viewModel.selectedFontWidth,
+                fontOpsz = viewModel.selectedFontOpsz,
+                fontGrad = viewModel.selectedFontGrad,
+                fontRond = viewModel.selectedFontRond
             ) {
                 val appState by viewModel.appState.collectAsState()
                 val isLoading by viewModel.isLoading.collectAsState()

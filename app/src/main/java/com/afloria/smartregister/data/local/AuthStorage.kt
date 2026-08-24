@@ -53,9 +53,15 @@ class AuthStorage(private val context: Context) {
         sharedPreferences.edit().putBoolean("is_first_launch", false).apply()
     }
 
-    fun saveThemeSettings(mode: ThemeMode, seed: Color?, secondary: Color?, tertiary: Color?) {
+    fun saveThemeSettings(mode: ThemeMode, seed: Color?, secondary: Color?, tertiary: Color?, fontFamily: String = "DEFAULT", fontWeight: Float = 400f, fontWidth: Float = 100f, fontOpsz: Float = 14f, fontGrad: Float = 0f, fontRond: Float = 0f) {
         sharedPreferences.edit().apply {
             putString("theme_mode", mode.name)
+            putString("theme_font", fontFamily)
+            putFloat("theme_font_weight", fontWeight)
+            putFloat("theme_font_width", fontWidth)
+            putFloat("theme_font_opsz", fontOpsz)
+            putFloat("theme_font_grad", fontGrad)
+            putFloat("theme_font_rond", fontRond)
             if (seed != null) putInt("theme_seed", seed.toArgb()) else remove("theme_seed")
             if (secondary != null) putInt("theme_secondary", secondary.toArgb()) else remove("theme_secondary")
             if (tertiary != null) putInt("theme_tertiary", tertiary.toArgb()) else remove("theme_tertiary")
@@ -112,8 +118,14 @@ class AuthStorage(private val context: Context) {
         val seed = if (sharedPreferences.contains("theme_seed")) Color(sharedPreferences.getInt("theme_seed", 0)) else null
         val secondary = if (sharedPreferences.contains("theme_secondary")) Color(sharedPreferences.getInt("theme_secondary", 0)) else null
         val tertiary = if (sharedPreferences.contains("theme_tertiary")) Color(sharedPreferences.getInt("theme_tertiary", 0)) else null
+        val fontFamily = sharedPreferences.getString("theme_font", "DEFAULT") ?: "DEFAULT"
+        val fontWeight = sharedPreferences.getFloat("theme_font_weight", 400f)
+        val fontWidth = sharedPreferences.getFloat("theme_font_width", 100f)
+        val fontOpsz = sharedPreferences.getFloat("theme_font_opsz", 14f)
+        val fontGrad = sharedPreferences.getFloat("theme_font_grad", 0f)
+        val fontRond = sharedPreferences.getFloat("theme_font_rond", 0f)
         
-        return ThemeSettings(mode, seed, secondary, tertiary)
+        return ThemeSettings(mode, seed, secondary, tertiary, fontFamily, fontWeight, fontWidth, fontOpsz, fontGrad, fontRond)
     }
 
     fun saveTimetable(data: TimetableData) {
@@ -229,11 +241,53 @@ class AuthStorage(private val context: Context) {
     fun getLastUpdateTimestamp(): Long {
         return sharedPreferences.getLong("last_update_ts", 0L)
     }
+
+    fun saveModernDashboardConfig(config: ModernDashboardConfig) {
+        sharedPreferences.edit().putString("modern_dashboard_config", json.encodeToString(config)).apply()
+    }
+
+    fun getModernDashboardConfig(): ModernDashboardConfig? {
+        val s = sharedPreferences.getString("modern_dashboard_config", null) ?: return null
+        return try { json.decodeFromString<ModernDashboardConfig>(s) } catch (e: Exception) { null }
+    }
+
+    fun saveDashboardConfig(config: DashboardConfig) {
+        sharedPreferences.edit().putString("dashboard_config", json.encodeToString(config)).apply()
+    }
+
+    fun getDashboardConfig(): DashboardConfig? {
+        val s = sharedPreferences.getString("dashboard_config", null) ?: return null
+        return try { json.decodeFromString<DashboardConfig>(s) } catch (e: Exception) { null }
+    }
 }
+
+@kotlinx.serialization.Serializable
+enum class WidgetType {
+    AI_BRIEF, RECOVERY_STATUS, WEEKLY_CHART, TOMORROW_AGENDA, COUNTDOWN,
+    GRADES_SUMMARY, ABSENCES_COUNT, NOTES_PREVIEW
+}
+
+@kotlinx.serialization.Serializable
+data class DashboardWidget(
+    val type: WidgetType,
+    val isVisible: Boolean = true,
+    val isFullWidth: Boolean = true
+)
+
+@kotlinx.serialization.Serializable
+data class DashboardConfig(
+    val widgets: List<DashboardWidget>
+)
 
 data class ThemeSettings(
     val mode: ThemeMode,
     val seed: Color?,
     val secondary: Color?,
-    val tertiary: Color?
+    val tertiary: Color?,
+    val fontFamily: String = "DEFAULT",
+    val fontWeight: Float = 400f,
+    val fontWidth: Float = 100f,
+    val fontOpsz: Float = 14f,
+    val fontGrad: Float = 0f,
+    val fontRond: Float = 0f
 )

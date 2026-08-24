@@ -17,6 +17,19 @@ data class AgendaResponse(
 )
 
 @Serializable
+data class LessonsResponse(
+    val lessons: List<LessonRemoteModel> = emptyList()
+)
+
+@Serializable
+data class LessonRemoteModel(
+    val authorName: String? = null,
+    val lessonArg: String? = null,
+    val subjectDesc: String? = null,
+    val evtDate: String? = null
+)
+
+@Serializable
 data class NoticeboardResponse(
     val items: List<NoticeRemoteModel>
 )
@@ -52,6 +65,14 @@ interface SpaggiariApi {
         @Path("begin") begin: String,
         @Path("end") end: String
     ): AgendaResponse
+
+    @GET("students/{studentId}/lessons/{begin}/{end}")
+    suspend fun getLessons(
+        @Header("Z-Auth-Token") token: String,
+        @Path("studentId") studentId: String,
+        @Path("begin") begin: String,
+        @Path("end") end: String
+    ): LessonsResponse
 
     @GET("students/{studentId}/noticeboard")
     suspend fun getNoticeboard(
@@ -103,22 +124,6 @@ interface SpaggiariApi {
         @Header("Z-Auth-Token") token: String,
         @Path("studentId") studentId: String
     ): DocumentsResponse
-
-    @POST("students/{studentId}/documents/check/{documentHash}")
-    @Streaming
-    suspend fun checkDocumentAvailability(
-        @Header("Z-Auth-Token") token: String,
-        @Path("studentId") studentId: String,
-        @Path("documentHash") documentHash: String
-    ): ResponseBody
-
-    @POST("students/{studentId}/documents/read/{documentHash}")
-    @Streaming
-    suspend fun readDocument(
-        @Header("Z-Auth-Token") token: String,
-        @Path("studentId") studentId: String,
-        @Path("documentHash") documentHash: String
-    ): Response<ResponseBody>
 
     @GET
     @Streaming

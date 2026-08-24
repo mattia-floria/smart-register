@@ -48,18 +48,38 @@ jobs:
     - name: Rename Signed APK
       run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/Smart-register.apk
 
+    - name: Extract Version and Check Prerelease
+      id: extract_info
+      if: github.event_name == 'push'
+      run: |
+        MSG=$(cat << 'EOF'
+        ${{ github.event.head_commit.message }}
+        EOF
+        )
+        VERSION=$(echo "$MSG" | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" | head -n 1)
+        if [ -n "$VERSION" ]; then
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release=true" >> $GITHUB_OUTPUT
+        else
+          echo "release=false" >> $GITHUB_OUTPUT
+        fi
+        if echo "$MSG" | grep -iq "prerelease"; then
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
-      if: github.event_name != 'pull_request'
+      if: github.event_name == 'push' && steps.extract_info.outputs.release == 'true'
       with:
-        tag_name: latest-build
-        name: "Smart-register"
+        tag_name: ${{ steps.extract_info.outputs.version }}
+        name: "Smart-register ${{ steps.extract_info.outputs.version }}"
         body: |
-          🚀 **Latest signed build created successfully**
-          This apk is ready and signed.
+          🚀 **Release ${{ steps.extract_info.outputs.version }} created successfully**
+          This APK is ready and signed.
         draft: false
-        prerelease: false
-        # Carica solo il file rinominato, ignorando quelli "unsigned"
-        files: app/build/outputs/apk/release/PhotoTinder.apk
+        prerelease: ${{ steps.extract_info.outputs.prerelease == 'true' }}
+        files: app/build/outputs/apk/release/Smart-register.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

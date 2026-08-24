@@ -20,6 +20,7 @@ import com.afloria.smartregister.ai.download.ModelDownloadManager
 import com.afloria.smartregister.ai.models.AiModels
 import com.afloria.smartregister.ai.runtime.LlmChatModelHelper
 import com.afloria.smartregister.data.local.AuthStorage
+import com.afloria.smartregister.data.local.*
 import com.afloria.smartregister.data.remote.SpaggiariApi
 import com.afloria.smartregister.data.remote.model.*
 import com.afloria.smartregister.ui.theme.ThemeMode
@@ -31,9 +32,7 @@ import com.google.ai.edge.litertlm.tool
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -59,17 +58,163 @@ sealed class AppState {
     data class SelectProfile(val choices: List<LoginChoice>) : AppState()
 }
 
+enum class UpdateResult {
+    IDLE, NO_UPDATES, UPDATED_FOUND, ERROR
+}
+
+data class FlappyPipe(val x: Float, val gapY: Float, val width: Float = 60f, val gapHeight: Float = 250f)
+data class FlappyGameState(
+    val birdY: Float = 500f,
+    val birdVelocity: Float = 0f,
+    val pipes: List<FlappyPipe> = emptyList(),
+    val score: Int = 0,
+    val isGameOver: Boolean = false,
+    val isPlaying: Boolean = false
+)
+
 data class ChatMessage(val text: String, val isUser: Boolean, val image: android.graphics.Bitmap? = null)
+
+sealed class DownloadEvent {
+    data class Success(val uri: Uri, val fileName: String, val mimeType: String) : DownloadEvent()
+    data class Error(val message: String) : DownloadEvent()
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val authStorage = AuthStorage(application)
     private val context = application
     private val modelDownloadManager = ModelDownloadManager(application)
+
+    private val _downloadEvents = MutableSharedFlow<DownloadEvent>()
+    val downloadEvents: SharedFlow<DownloadEvent> = _downloadEvents.asSharedFlow()
     
     var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     var selectedSeedColor by mutableStateOf<Color?>(null)
     var selectedSecondaryColor by mutableStateOf<Color?>(null)
     var selectedTertiaryColor by mutableStateOf<Color?>(null)
+    var selectedFontFamily by mutableStateOf("DEFAULT")
+    var selectedFontWeight by mutableFloatStateOf(400f)
+    var selectedFontWidth by mutableFloatStateOf(100f)
+    var selectedFontOpsz by mutableFloatStateOf(14f)
+    var selectedFontGrad by mutableFloatStateOf(0f)
+    var selectedFontRond by mutableFloatStateOf(0f)
+
+    // Update state
+    var isSearchingForUpdates by mutableStateOf(false)
+    var updateCheckResult by mutableStateOf<UpdateResult?>(null)
+    var isNightlyEnabled by mutableStateOf(false)
+    var isUpdateNotificationsEnabled by mutableStateOf(true)
+    var updateCheckCount by mutableIntStateOf(0)
+    var dynamicUpdateMessage by mutableStateOf("")
+    var isEasterEggActive by mutableStateOf(false)
+    
+    // Flappy Game State
+    var flappyGame by mutableStateOf(FlappyGameState())
+    private var gameJob: Job? = null
+
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            isSearchingForUpdates = true
+            updateCheckResult = null
+            
+            // Simulate GitHub release check delay
+            kotlinx.coroutines.delay(3500)
+            
+            updateCheckCount++
+            
+            dynamicUpdateMessage = when (updateCheckCount) {
+                1 -> "Paga lo sviluppatore e ci saranno più aggiornamenti"
+                2 -> "Ti posso assicurare che non ci sono aggiornamenti e hai già l'ultima versione"
+                3 -> "Stai tranquillo che anche se aspetti 30 secondi non ci sarà un aggiornamento"
+                4 -> "Hai veramente così tanto bisogno di un aggiornamento?"
+                5 -> "Piuttosto che continuare a provarci vai a studiare"
+                else -> {
+                    isEasterEggActive = true
+                    "VA BENE, ECCO IL TUO AGGIORNAMENTO SEGRETO! 🚀"
+                }
+            }
+            
+            isSearchingForUpdates = false
+            updateCheckResult = UpdateResult.NO_UPDATES
+        }
+    }
+
+    fun startFlappyGame() {
+        flappyGame = FlappyGameState(isPlaying = true)
+        gameJob?.cancel()
+        gameJob = viewModelScope.launch {
+            val gravity = 0.7f
+            val pipeSpeed = 7f
+            var frameCount = 0
+            
+            while (flappyGame.isPlaying && !flappyGame.isGameOver) {
+                kotlinx.coroutines.delay(16) // ~60fps
+                
+                val current = flappyGame
+                val newBirdY = current.birdY + current.birdVelocity
+                val newBirdVel = current.birdVelocity + gravity
+                
+                val newPipes = current.pipes.map { it.copy(x = it.x - pipeSpeed) }.filter { it.x > -100 }
+                val spawnedPipes = if (frameCount % 80 == 0) {
+                    newPipes + FlappyPipe(x = 1100f, gapY = (300..900).random().toFloat(), gapHeight = 350f)
+                } else newPipes
+                
+                var newScore = current.score
+                current.pipes.forEach { pipe ->
+                    if (pipe.x + pipe.width < 150 && pipe.x + pipe.width >= 150 - pipeSpeed) {
+                        newScore++
+                    }
+                }
+
+                // Simple collision
+                val hitPipe = spawnedPipes.any { pipe ->
+                    val birdX = 150f
+                    val birdSize = 60f
+                    val inPipeX = birdX + birdSize > pipe.x && birdX < pipe.x + pipe.width
+                    val hitTop = newBirdY < pipe.gapY
+                    val hitBottom = newBirdY + birdSize > pipe.gapY + pipe.gapHeight
+                    inPipeX && (hitTop || hitBottom)
+                }
+                
+                val outOfBounds = newBirdY < 0 || newBirdY > 1800
+                
+                if (hitPipe || outOfBounds) {
+                    flappyGame = current.copy(isGameOver = true, birdY = newBirdY, pipes = spawnedPipes, score = newScore)
+                } else {
+                    flappyGame = current.copy(
+                        birdY = newBirdY,
+                        birdVelocity = newBirdVel,
+                        pipes = spawnedPipes,
+                        score = newScore
+                    )
+                }
+                frameCount++
+            }
+        }
+    }
+
+    fun flapBird() {
+        if (flappyGame.isGameOver) {
+            startFlappyGame()
+        } else {
+            flappyGame = flappyGame.copy(birdVelocity = -13f)
+        }
+    }
+
+    fun resetEasterEgg() {
+        isEasterEggActive = false
+        updateCheckCount = 0
+        updateCheckResult = null
+        flappyGame = FlappyGameState()
+        gameJob?.cancel()
+    }
+
+    fun toggleNightly(enabled: Boolean) {
+        isNightlyEnabled = enabled
+    }
+
+    fun toggleUpdateNotifications(enabled: Boolean) {
+        isUpdateNotificationsEnabled = enabled
+    }
 
     private val json = Json { 
         ignoreUnknownKeys = true 
@@ -132,6 +277,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _timetableData = MutableStateFlow(TimetableData())
     val timetableData: StateFlow<TimetableData> = _timetableData
+
+    private val _modernDashboardConfig = MutableStateFlow(
+        authStorage.getModernDashboardConfig() ?: ModernDashboardConfig(
+            widgets = listOf(
+                DashboardWidgetState("ai_brief", WidgetType.AI_BRIEF, 0, DashboardSpanSize.LARGE),
+                DashboardWidgetState("gpa", WidgetType.RECOVERY_STATUS, 1, DashboardSpanSize.SMALL),
+                DashboardWidgetState("countdown", WidgetType.COUNTDOWN, 2, DashboardSpanSize.SMALL),
+                DashboardWidgetState("weekly_chart", WidgetType.WEEKLY_CHART, 3, DashboardSpanSize.WIDE),
+                DashboardWidgetState("agenda", WidgetType.TOMORROW_AGENDA, 4, DashboardSpanSize.WIDE)
+            )
+        )
+    )
+    val modernDashboardConfig: StateFlow<ModernDashboardConfig> = _modernDashboardConfig
+
+    private val _dashboardConfig = MutableStateFlow(
+        authStorage.getDashboardConfig() ?: DashboardConfig(
+            widgets = listOf(
+                DashboardWidget(WidgetType.AI_BRIEF, isFullWidth = true),
+                DashboardWidget(WidgetType.COUNTDOWN, isFullWidth = false),
+                DashboardWidget(WidgetType.RECOVERY_STATUS, isFullWidth = false),
+                DashboardWidget(WidgetType.WEEKLY_CHART, isFullWidth = true),
+                DashboardWidget(WidgetType.TOMORROW_AGENDA, isFullWidth = true)
+            )
+        )
+    )
+    val dashboardConfig: StateFlow<DashboardConfig> = _dashboardConfig
 
     // AI State
     var selectedAiModelName by mutableStateOf(authStorage.getAiModel())
@@ -280,6 +451,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectedSeedColor = settings.seed
         selectedSecondaryColor = settings.secondary
         selectedTertiaryColor = settings.tertiary
+        selectedFontFamily = settings.fontFamily
+        selectedFontWeight = settings.fontWeight
+        selectedFontWidth = settings.fontWidth
+        selectedFontOpsz = settings.fontOpsz
+        selectedFontGrad = settings.fontGrad
+        selectedFontRond = settings.fontRond
         isChatEnabled = authStorage.isChatEnabled()
         isExperimentalEnabled = authStorage.isExperimentalEnabled()
         isAiBriefEnabled = authStorage.isAiBriefEnabled()
@@ -375,14 +552,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateTheme(mode: ThemeMode) {
         themeMode = mode
-        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor)
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
     }
 
     fun updatePalette(seed: Color?, secondary: Color?, tertiary: Color?) {
         selectedSeedColor = seed
         selectedSecondaryColor = secondary
         selectedTertiaryColor = tertiary
-        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor)
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
+    }
+
+    fun updateFont(font: String) {
+        selectedFontFamily = font
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
+    }
+
+    fun updateFontWeight(weight: Float) {
+        selectedFontWeight = weight
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
+    }
+
+    fun updateFontWidth(width: Float) {
+        selectedFontWidth = width
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
+    }
+
+    fun updateFontOpsz(opsz: Float) {
+        selectedFontOpsz = opsz
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
+    }
+
+    fun updateFontGrad(grad: Float) {
+        selectedFontGrad = grad
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
+    }
+
+    fun updateFontRond(rond: Float) {
+        selectedFontRond = rond
+        authStorage.saveThemeSettings(themeMode, selectedSeedColor, selectedSecondaryColor, selectedTertiaryColor, selectedFontFamily, selectedFontWeight, selectedFontWidth, selectedFontOpsz, selectedFontGrad, selectedFontRond)
     }
 
     fun toggleChat(enabled: Boolean) {
@@ -539,37 +746,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun fetchAllData(token: String, ident: String) {
         try {
-            val studentId = ident.filter { it.isDigit() }
-            val sdf = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+            // Try both filtered and raw ID as some endpoints might behave differently
+            val studentIdDigits = ident.filter { it.isDigit() }
+            val studentId = if (studentIdDigits.isEmpty()) ident else studentIdDigits
+            
+            // For range endpoints, use yyyy-MM-dd format as seen in reference repo
+            val apiDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val rangeCal = Calendar.getInstance()
-            rangeCal.set(Calendar.MONTH, Calendar.SEPTEMBER)
-            rangeCal.set(Calendar.DAY_OF_MONTH, 1)
-            if (rangeCal.after(Calendar.getInstance())) rangeCal.add(Calendar.YEAR, -1)
-            val startDate = sdf.format(rangeCal.time)
-            rangeCal.add(Calendar.YEAR, 1)
-            rangeCal.set(Calendar.MONTH, Calendar.JUNE)
-            rangeCal.set(Calendar.DAY_OF_MONTH, 30)
-            val endDate = sdf.format(rangeCal.time)
+            
+            // Academic year logic: 
+            // If month is < 9 (Jan-Aug), the year started in Sept of PREVIOUS year.
+            // If month is >= 9 (Sept-Dec), the year started in Sept of CURRENT year.
+            val currentYear = rangeCal.get(Calendar.YEAR)
+            val currentMonth = rangeCal.get(Calendar.MONTH) // 0-indexed
+            
+            val academicStartYear = if (currentMonth < Calendar.SEPTEMBER) currentYear - 1 else currentYear
+            
+            val startCal = Calendar.getInstance()
+            startCal.set(academicStartYear, Calendar.SEPTEMBER, 1)
+            val startDateStr = apiDateFormat.format(startCal.time)
+            
+            val endCal = Calendar.getInstance()
+            endCal.set(academicStartYear + 1, Calendar.AUGUST, 31)
+            val endDateStr = apiDateFormat.format(endCal.time)
 
-            val gradesResponse = api.getGrades(token, studentId)
-            grades = gradesResponse.grades.sortedByDescending { it.evtDate }
-            authStorage.saveGrades(grades)
+            Log.d("CV_SYNC", "Fetching for ID: $studentId, Range: $startDateStr to $endDateStr")
 
-            notes = api.getNotes(token, studentId)
-            notes?.let { authStorage.saveNotes(it) }
+            // Wrap each call in a safe try-catch to allow partial successes
+            try {
+                val gradesResponse = api.getGrades(token, studentId)
+                grades = gradesResponse.grades.sortedByDescending { it.evtDate }
+                authStorage.saveGrades(grades)
+            } catch (e: Exception) {
+                Log.e("CV_GRADES", "Grades fetch failed", e)
+            }
 
-            val agendaResponse = api.getAgenda(token, studentId, startDate, endDate)
-            agenda = agendaResponse.agenda
-            authStorage.saveAgenda(agenda)
+            try {
+                notes = api.getNotes(token, studentId)
+                notes?.let { authStorage.saveNotes(it) }
+            } catch (e: Exception) { Log.e("CV_NOTES", "Notes fetch failed", e) }
 
-            notices = api.getNoticeboard(token, studentId).items
-            authStorage.saveNotices(notices)
+            try {
+                val lessonsResponse = api.getLessons(token, studentId, startDateStr, endDateStr)
+                // We could merge lessons into agenda or keep them separate
+            } catch (e: Exception) { Log.e("CV_LESSONS", "Lessons fetch failed", e) }
 
-            teachersMaterials = api.getDidactics(token, studentId).teachers ?: emptyList()
-            authStorage.saveMaterials(teachersMaterials)
+            try {
+                val agendaResponse = api.getAgenda(token, studentId, startDateStr, endDateStr)
+                agenda = agendaResponse.agenda
+                authStorage.saveAgenda(agenda)
+            } catch (e: Exception) { Log.e("CV_AGENDA", "Agenda fetch failed", e) }
 
-            absences = api.getAbsences(token, studentId).events.sortedByDescending { it.evtDate }
-            authStorage.saveAbsences(absences)
+            try {
+                notices = api.getNoticeboard(token, studentId).items
+                authStorage.saveNotices(notices)
+            } catch (e: Exception) { Log.e("CV_NOTICES", "Notices fetch failed", e) }
+
+            try {
+                teachersMaterials = api.getDidactics(token, studentId).teachers ?: emptyList()
+                authStorage.saveMaterials(teachersMaterials)
+            } catch (e: Exception) { Log.e("CV_DIDACTICS", "Materials fetch failed", e) }
+
+            try {
+                absences = api.getAbsences(token, studentId).events.sortedByDescending { it.evtDate }
+                authStorage.saveAbsences(absences)
+            } catch (e: Exception) { Log.e("CV_ABSENCES", "Absences fetch failed", e) }
             
             try {
                 finalGrades = api.getDocuments(token, studentId).schoolReports ?: emptyList()
@@ -580,11 +821,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             
             authStorage.saveLastUpdateTimestamp(System.currentTimeMillis())
 
-            if (_timetableData.value.entries.isEmpty()) {
+            if (agenda.isNotEmpty() && _timetableData.value.entries.isEmpty()) {
                 generateTimetableFromAgenda()
             }
         } catch (e: Exception) {
-            Log.e("CV_DATA", "Data fetch failed", e)
+            Log.e("CV_DATA_ALL", "Global data fetch failed", e)
             withContext(Dispatchers.Main) {
                 showOfflineMessage()
             }
@@ -625,12 +866,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val body = response.body()
                     if (body != null) {
                         val fileName = "${report.desc ?: "scrutinio"}.pdf"
-                        val uri = saveFileWithProgress(fileName, body, "application/pdf")
-                        if (uri != null) openFile(uri, "application/pdf")
+                        val contentType = "application/pdf"
+                        val uri = saveFileWithProgress(fileName, body, contentType)
+                        if (uri != null) {
+                            _downloadEvents.emit(DownloadEvent.Success(uri, fileName, contentType))
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e("VIEW_REPORT_ERROR", "Failed to download school report", e)
+                _downloadEvents.emit(DownloadEvent.Error("Errore durante il download."))
             } finally {
                 _isDownloading.value = false
             }
@@ -658,11 +903,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             fileName = "$fileName.$extension"
                         }
                         val uri = saveFileWithProgress(fileName, body, contentType)
-                        if (uri != null) openFile(uri, contentType)
+                        if (uri != null) {
+                            _downloadEvents.emit(DownloadEvent.Success(uri, fileName, contentType))
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e("DOWNLOAD_ERROR", "Failed to download didactic file", e)
+                _downloadEvents.emit(DownloadEvent.Error("Errore durante il download."))
             } finally {
                 _isDownloading.value = false
             }
@@ -688,11 +936,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (body != null) {
                         val fileName = attachment.fileName ?: "allegato.pdf"
                         val uri = saveFileWithProgress(fileName, body, contentType)
-                        if (uri != null) openFile(uri, contentType)
+                        if (uri != null) {
+                            _downloadEvents.emit(DownloadEvent.Success(uri, fileName, contentType))
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e("DOWNLOAD_ERROR", "Failed to download notice attachment", e)
+                _downloadEvents.emit(DownloadEvent.Error("Errore durante il download."))
             } finally {
                 _isDownloading.value = false
             }
@@ -734,7 +985,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun openFile(uri: Uri, mimeType: String) {
+    fun openFile(uri: Uri, mimeType: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, mimeType)
@@ -981,6 +1232,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getCredentials() = authStorage.getCredentials()
+
+    fun updateModernDashboardConfig(newConfig: ModernDashboardConfig) {
+        _modernDashboardConfig.value = newConfig
+        authStorage.saveModernDashboardConfig(newConfig)
+    }
+
+    fun updateWidgetState(id: String, transform: (DashboardWidgetState) -> DashboardWidgetState) {
+        val currentWidgets = _modernDashboardConfig.value.widgets.map { 
+            if (it.id == id) transform(it) else it
+        }
+        updateModernDashboardConfig(ModernDashboardConfig(currentWidgets))
+    }
+
+    fun moveWidget(fromId: String, toId: String) {
+        val currentWidgets = _modernDashboardConfig.value.widgets.toMutableList()
+        val fromIndex = currentWidgets.indexOfFirst { it.id == fromId }
+        val toIndex = currentWidgets.indexOfFirst { it.id == toId }
+        
+        if (fromIndex != -1 && toIndex != -1) {
+            val item = currentWidgets.removeAt(fromIndex)
+            currentWidgets.add(toIndex, item)
+            
+            val updatedWidgets = currentWidgets.mapIndexed { index, widget ->
+                widget.copy(position = index)
+            }
+            updateModernDashboardConfig(ModernDashboardConfig(updatedWidgets))
+        }
+    }
+
+    fun updateDashboardConfig(newConfig: DashboardConfig) {
+        _dashboardConfig.value = newConfig
+        authStorage.saveDashboardConfig(newConfig)
+    }
 
     fun logout() {
         authStorage.clear()
