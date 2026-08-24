@@ -51,20 +51,24 @@ jobs:
     - name: Extract Version and Check Prerelease
       id: extract_info
       if: github.event_name == 'push'
+      env:
+        COMMIT_MSG: ${{ github.event.head_commit.message }}
       run: |
-        MSG=$(cat << 'EOF'
-        ${{ github.event.head_commit.message }}
-        EOF
-        )
-        VERSION=$(echo "$MSG" | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" | head -n 1)
+        # Use grep to find a version like v1.0.1 or v1.0.1-beta
+        VERSION=$(echo "$COMMIT_MSG" | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)??" | head -n 1)
+        
         if [ -n "$VERSION" ]; then
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "release=true" >> $GITHUB_OUTPUT
+          echo "Found version: $VERSION"
         else
           echo "release=false" >> $GITHUB_OUTPUT
+          echo "No version found in commit message."
         fi
-        if echo "$MSG" | grep -iq "prerelease"; then
+
+        if echo "$COMMIT_MSG" | grep -iq "prerelease"; then
           echo "prerelease=true" >> $GITHUB_OUTPUT
+          echo "Marked as prerelease."
         else
           echo "prerelease=false" >> $GITHUB_OUTPUT
         fi
