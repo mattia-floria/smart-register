@@ -54,23 +54,24 @@ jobs:
       env:
         COMMIT_MSG: ${{ github.event.head_commit.message }}
       run: |
-        # Use grep to find a version like v1.0.1 or V1.0.1 (case-insensitive)
-        VERSION=$(echo "$COMMIT_MSG" | grep -oiE "v[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)??" | head -n 1)
+        echo "DEBUG: Checking commit message for version..."
+        
+        # This regex matches v1, v1.0, v1.0.1, V1.0.1-beta, etc.
+        VERSION=$(echo "$COMMIT_MSG" | grep -oEi '[vV][0-9]+(\.[0-9]+)*(-[a-zA-Z0-9.]+)?' | head -n 1)
         
         if [ -n "$VERSION" ]; then
-          # Normalize to lowercase 'v' for the tag if found
           TAG=$(echo "$VERSION" | tr 'A-Z' 'a-z')
           echo "version=$TAG" >> $GITHUB_OUTPUT
           echo "release=true" >> $GITHUB_OUTPUT
-          echo "Found version: $TAG"
+          echo "✅ Found version: $TAG"
         else
           echo "release=false" >> $GITHUB_OUTPUT
-          echo "No version found in commit message."
+          echo "ℹ️ No version found in commit message. Skipping Release creation."
         fi
 
         if echo "$COMMIT_MSG" | grep -iq "prerelease"; then
           echo "prerelease=true" >> $GITHUB_OUTPUT
-          echo "Marked as prerelease."
+          echo "⚠️ Marked as a Prerelease."
         else
           echo "prerelease=false" >> $GITHUB_OUTPUT
         fi
@@ -83,9 +84,10 @@ jobs:
         name: "Smart-register ${{ steps.extract_info.outputs.version }}"
         body: |
           🚀 **Release ${{ steps.extract_info.outputs.version }} created successfully**
-          This APK is ready and signed.
+          Generated automatically from commit: ${{ github.event.head_commit.id }}
         draft: false
         prerelease: ${{ steps.extract_info.outputs.prerelease == 'true' }}
         files: app/build/outputs/apk/release/Smart-register.apk
+        generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
