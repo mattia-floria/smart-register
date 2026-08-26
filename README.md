@@ -25,6 +25,9 @@ Smart Register è un client alternativo per il registro elettronico, pensato per
 ## Contributing
 
 Pull request, segnalazioni di bug e suggerimenti per nuove opzioni di personalizzazione sono sempre benvenuti. Apri un'issue o invia una PR per contribuire al progetto!
-<img width="472.5" height="1024" alt="WhatsApp Image 2026-08-26 at 7 21 22 PM" src="https://github.com/user-attachments/assets/73db7d45-b50a-4baa-9163-9fe4741a5e93" /> <img width="472.5" height="2048" alt="WhatsApp Image 2026-08-26 at 7 21 22 PM (1)" src="https://github.com/user-attachments/assets/9a9d3692-cf8f-4dd4-ae52-145075148be2" />
+
+
+<img width="472.5" height="1024" alt="WhatsApp Image 2026-08-26 at 7 21 22 PM" src="https://github.com/user-attachments/assets/73db7d45-b50a-4baa-9163-9fe4741a5e93" /> 
+<img width="472.5" height="2048" alt="WhatsApp Image 2026-08-26 at 7 21 22 PM (1)" src="https://github.com/user-attachments/assets/9a9d3692-cf8f-4dd4-ae52-145075148be2" />
 <img width="472.5" height="1024" alt="WhatsApp Image 2026-08-26 at 7 21 22 PM (2)" src="https://github.com/user-attachments/assets/ff2d398c-f9ca-4418-9ace-43c26d63ad89" />
 
