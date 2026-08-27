@@ -6,13 +6,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,14 +22,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,7 +38,11 @@ import com.afloria.smartregister.data.local.*
 import com.afloria.smartregister.ui.MainViewModel
 import com.afloria.smartregister.ui.components.ExpressiveCard
 import com.afloria.smartregister.ui.theme.ExpressiveShapes
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
+
+private val BASE_ROW_HEIGHT = 160.dp
+private const val GRID_COLUMNS = 2
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -83,12 +88,12 @@ fun DashboardScreen(viewModel: MainViewModel) {
         }
 
         LazyVerticalStaggeredGrid(
-            columns = StaggeredGridCells.Fixed(2),
+            columns = StaggeredGridCells.Fixed(GRID_COLUMNS),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .graphicsLayer { clip = false }, // Optimize rendering
-            contentPadding = PaddingValues(20.dp, 20.dp, 20.dp, 160.dp), // Increased bottom padding
+                .graphicsLayer { clip = false },
+            contentPadding = PaddingValues(20.dp, 20.dp, 20.dp, 160.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalItemSpacing = 16.dp
         ) {
@@ -106,12 +111,20 @@ fun DashboardScreen(viewModel: MainViewModel) {
 
             items(
                 items = visibleWidgets,
-                key = { it.id }
+                key = { it.id },
+                span = { widget ->
+                    if (widget.width >= GRID_COLUMNS) StaggeredGridItemSpan.FullLine 
+                    else StaggeredGridItemSpan.SingleLane
+                }
             ) { widget ->
                 var offsetX by remember { mutableFloatStateOf(0f) }
                 var offsetY by remember { mutableFloatStateOf(0f) }
+                var morphWidthPx by remember { mutableFloatStateOf(0f) }
+                var morphHeightPx by remember { mutableFloatStateOf(0f) }
+
+                val density = LocalDensity.current
+                val morphHeightDp = with(density) { morphHeightPx.toDp() }
                 
-                // Motion blur and scale derived from movement
                 val dragIntensity by remember {
                     derivedStateOf {
                         val distance = sqrt(offsetX * offsetX + offsetY * offsetY)
@@ -123,12 +136,12 @@ fun DashboardScreen(viewModel: MainViewModel) {
                     modifier = Modifier
                         .animateItem(
                             placementSpec = spring(
-                                dampingRatio = 0.85f, // Apple-like smoothness
+                                dampingRatio = 0.85f,
                                 stiffness = 380f,
                                 visibilityThreshold = IntOffset.VisibilityThreshold
                             )
                         )
-                        .animateContentSize()
+                        .height(BASE_ROW_HEIGHT * widget.height + (16.dp * (widget.height - 1)) + morphHeightDp)
                         .then(if (isEditMode) {
                             Modifier
                                 .graphicsLayer {
@@ -143,14 +156,11 @@ fun DashboardScreen(viewModel: MainViewModel) {
                                     alpha = if (isDragging) 0.9f else 1f
                                     shadowElevation = if (isDragging) 32.dp.toPx() else 0f
                                     
-                                    // Subtle Motion Blur using RenderEffect (API 31+)
                                     if (isDragging) {
                                         val blurRadius = (dragIntensity * 12f).coerceAtLeast(0.01f)
                                         renderEffect = android.graphics.RenderEffect
                                             .createBlurEffect(blurRadius, blurRadius, android.graphics.Shader.TileMode.CLAMP)
                                             .asComposeRenderEffect()
-                                        
-                                        // Hardware acceleration hint for smoother 120Hz performance
                                         compositingStrategy = CompositingStrategy.Offscreen
                                     } else {
                                         renderEffect = null
@@ -159,42 +169,32 @@ fun DashboardScreen(viewModel: MainViewModel) {
                                 }
                                 .pointerInput(visibleWidgets) {
                                     detectDragGesturesAfterLongPress(
-                                        onDragStart = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        },
+                                        onDragStart = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
                                         onDrag = { change, dragAmount ->
                                             change.consume()
                                             offsetX += dragAmount.x
                                             offsetY += dragAmount.y
                                             
-                                            // Dynamic reordering while dragging
                                             val currentIndex = visibleWidgets.indexOfFirst { it.id == widget.id }
-                                            val gridStepX = 200f // Approximate grid cell size
-                                            val gridStepY = 400f
+                                            val gridStepX = size.width.toFloat() / 2f
+                                            val gridStepY = size.height.toFloat()
                                             
                                             val targetIndex = when {
-                                                offsetY < -gridStepY -> (currentIndex - 2).coerceAtLeast(0)
-                                                offsetY > gridStepY -> (currentIndex + 2).coerceAtMost(visibleWidgets.size - 1)
-                                                offsetX < -gridStepX -> (currentIndex - 1).coerceAtLeast(0)
-                                                offsetX > gridStepX -> (currentIndex + 1).coerceAtMost(visibleWidgets.size - 1)
+                                                offsetY < -gridStepY / 2 -> (currentIndex - 2).coerceAtLeast(0)
+                                                offsetY > gridStepY / 2 -> (currentIndex + 2).coerceAtMost(visibleWidgets.size - 1)
+                                                offsetX < -gridStepX / 2 -> (currentIndex - 1).coerceAtLeast(0)
+                                                offsetX > gridStepX / 2 -> (currentIndex + 1).coerceAtMost(visibleWidgets.size - 1)
                                                 else -> currentIndex
                                             }
                                             
                                             if (targetIndex != currentIndex) {
                                                 viewModel.moveWidget(widget.id, visibleWidgets[targetIndex].id)
-                                                // Reset offsets partially to keep dragging smooth relative to new position
                                                 offsetX = 0f
                                                 offsetY = 0f
                                             }
                                         },
-                                        onDragEnd = {
-                                            offsetX = 0f
-                                            offsetY = 0f
-                                        },
-                                        onDragCancel = {
-                                            offsetX = 0f
-                                            offsetY = 0f
-                                        }
+                                        onDragEnd = { offsetX = 0f; offsetY = 0f },
+                                        onDragCancel = { offsetX = 0f; offsetY = 0f }
                                     )
                                 }
                                 .rotate(rotation)
@@ -204,34 +204,21 @@ fun DashboardScreen(viewModel: MainViewModel) {
                         widget = widget,
                         viewModel = viewModel,
                         isEditMode = isEditMode,
-                        onResize = {
-                            val nextSpan = when(widget.spanSize) {
-                                DashboardSpanSize.SMALL -> DashboardSpanSize.WIDE
-                                DashboardSpanSize.WIDE -> DashboardSpanSize.LARGE
-                                DashboardSpanSize.LARGE -> DashboardSpanSize.SMALL
-                            }
-                            val newWidgets = dashboardConfig.widgets.map { 
-                                if (it.id == widget.id) it.copy(spanSize = nextSpan) else it
-                            }
-                            viewModel.updateModernDashboardConfig(dashboardConfig.copy(widgets = newWidgets))
-                        },
-                        onMoveUp = {
-                            val currentIndex = visibleWidgets.indexOfFirst { it.id == widget.id }
-                            if (currentIndex > 0) {
-                                viewModel.moveWidget(widget.id, visibleWidgets[currentIndex - 1].id)
-                            }
-                        },
-                        onMoveDown = {
-                            val currentIndex = visibleWidgets.indexOfFirst { it.id == widget.id }
-                            if (currentIndex < visibleWidgets.size - 1) {
-                                viewModel.moveWidget(widget.id, visibleWidgets[currentIndex + 1].id)
-                            }
-                        },
-                        onHide = {
-                            val newWidgets = dashboardConfig.widgets.map { 
-                                if (it.id == widget.id) it.copy(isVisible = false) else it
-                            }
-                            viewModel.updateModernDashboardConfig(dashboardConfig.copy(widgets = newWidgets))
+                        morphWidthPx = morphWidthPx,
+                        onMorphWidth = { morphWidthPx += it },
+                        onMorphHeight = { morphHeightPx += it },
+                        onSnap = { finalWidthPx ->
+                            val rowHeightPx = with(density) { BASE_ROW_HEIGHT.toPx() }
+                            val deltaRows = (morphHeightPx / rowHeightPx).roundToInt()
+                            val newHeight = (widget.height + deltaRows).coerceAtLeast(1)
+                            
+                            val newWidth = if (morphWidthPx > finalWidthPx / 2f) 2 
+                                           else if (morphWidthPx < -finalWidthPx / 2f) 1 
+                                           else widget.width
+                            
+                            viewModel.updateWidgetSize(widget.id, newWidth.coerceIn(1, 2), newHeight)
+                            morphWidthPx = 0f
+                            morphHeightPx = 0f
                         }
                     )
                 }
@@ -306,18 +293,50 @@ fun DashboardWidgetContainer(
     widget: DashboardWidgetState,
     viewModel: MainViewModel,
     isEditMode: Boolean,
-    onResize: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onHide: () -> Unit
+    morphWidthPx: Float,
+    onMorphWidth: (Float) -> Unit,
+    onMorphHeight: (Float) -> Unit,
+    onSnap: (Float) -> Unit
 ) {
-    Box {
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val bounceAnim = remember { Animatable(1f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(isEditMode) {
+                if (isEditMode) {
+                    detectTapGestures(
+                        onTap = {
+                            viewModel.cycleWidgetColor(widget.id)
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                    )
+                }
+            }
+    ) {
+        val bounceScale by animateFloatAsState(
+            targetValue = bounceAnim.value,
+            animationSpec = spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMedium),
+            label = "bounce"
+        )
+
+        val morphWidthDp = with(density) { morphWidthPx.toDp() }
+
         ExpressiveCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = when(widget.spanSize) {
-                DashboardSpanSize.SMALL -> ExpressiveShapes.Squircle
-                DashboardSpanSize.WIDE -> ExpressiveShapes.AsymmetricTop
-                DashboardSpanSize.LARGE -> ExpressiveShapes.ExtraLargeSquircle
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(end = (-morphWidthDp).coerceAtMost(0.dp))
+                .graphicsLayer {
+                    scaleX = bounceScale
+                    scaleY = bounceScale
+                }
+                .then(if (isEditMode) Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), ExpressiveShapes.Squircle) else Modifier),
+            shape = when {
+                widget.width == 1 && widget.height == 1 -> ExpressiveShapes.Squircle
+                widget.width == 2 && widget.height == 1 -> ExpressiveShapes.AsymmetricTop
+                else -> ExpressiveShapes.ExtraLargeSquircle
             },
             containerColor = when(widget.colorType) {
                 WidgetColorType.PRIMARY -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
@@ -326,99 +345,73 @@ fun DashboardWidgetContainer(
                 WidgetColorType.SURFACE -> MaterialTheme.colorScheme.surfaceContainer
             }
         ) {
-            when (widget.type) {
-                WidgetType.AI_BRIEF -> AiBriefContent(viewModel)
-                WidgetType.RECOVERY_STATUS -> GpaHeroContent(viewModel)
-                WidgetType.COUNTDOWN -> StatWidgetContent("Fine Scuola", "84gg", Icons.Rounded.Celebration)
-                WidgetType.WEEKLY_CHART -> NoticeboardWidget(viewModel)
-                WidgetType.TOMORROW_AGENDA -> AgendaPreview(viewModel)
-                WidgetType.GRADES_SUMMARY -> RegistryPreview(viewModel)
-                WidgetType.ABSENCES_COUNT -> AbsencesWidget(viewModel)
-                WidgetType.NOTES_PREVIEW -> NotesWidget(viewModel)
+            Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                when (widget.type) {
+                    WidgetType.AI_BRIEF -> AiBriefContent(viewModel)
+                    WidgetType.RECOVERY_STATUS -> GpaHeroContent(viewModel)
+                    WidgetType.COUNTDOWN -> StatWidgetContent("Fine Scuola", "84gg", Icons.Rounded.Celebration)
+                    WidgetType.WEEKLY_CHART -> NoticeboardWidget(viewModel)
+                    WidgetType.TOMORROW_AGENDA -> AgendaPreview(viewModel)
+                    WidgetType.GRADES_SUMMARY -> RegistryPreview(viewModel)
+                    WidgetType.ABSENCES_COUNT -> AbsencesWidget(viewModel)
+                    WidgetType.NOTES_PREVIEW -> NotesWidget(viewModel)
+                }
             }
         }
 
         if (isEditMode) {
-            // Edit Overlay: Color Picker & Action Buttons
-            Column(
-                modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                WidgetColorPicker(
-                    selectedColor = widget.colorType,
-                    onColorSelected = { newColor ->
-                        viewModel.updateWidgetState(widget.id) { it.copy(colorType = newColor) }
-                    }
-                )
-            }
-
-            Surface(
-                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f),
-                shape = ExpressiveShapes.Pill,
-                tonalElevation = 8.dp
-            ) {
-                Row(modifier = Modifier.padding(2.dp)) {
-                    WidgetActionButton(Icons.Rounded.VisibilityOff, onHide)
-                }
-            }
-
-            // Pullable Resize Corner (Bottom Right)
+            val borderHitSize = 32.dp
+            
+            // Right Border (Width Resize)
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), CircleShape)
+                    .fillMaxHeight()
+                    .width(borderHitSize)
+                    .align(Alignment.CenterEnd)
                     .pointerInput(Unit) {
-                        detectDragGesturesAfterLongPress(
-                            onDrag = { change, _ -> change.consume() },
-                            onDragEnd = { onResize() }
+                        detectDragGestures(
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                onMorphWidth(dragAmount.x)
+                            },
+                            onDragEnd = { onSnap(size.width.toFloat()) },
+                            onDragCancel = { onSnap(size.width.toFloat()) }
                         )
-                    },
-                contentAlignment = Alignment.Center
+                    }
+            )
+
+            // Bottom Border (Height Resize)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(borderHitSize)
+                    .align(Alignment.BottomCenter)
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                onMorphHeight(dragAmount.y)
+                            },
+                            onDragEnd = { onSnap(size.width.toFloat()) }, // Passing width even here for consistency
+                            onDragCancel = { onSnap(size.width.toFloat()) }
+                        )
+                    }
+            )
+            
+            IconButton(
+                onClick = { viewModel.updateWidgetState(widget.id) { it.copy(isVisible = false) } },
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).background(MaterialTheme.colorScheme.errorContainer, CircleShape)
             ) {
-                Icon(Icons.Rounded.OpenInFull, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(Icons.Rounded.Close, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
             }
         }
     }
-}
-
-@Composable
-fun WidgetColorPicker(selectedColor: WidgetColorType, onColorSelected: (WidgetColorType) -> Unit) {
-    Row(
-        modifier = Modifier
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f), ExpressiveShapes.Pill)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        ColorCircle(MaterialTheme.colorScheme.primary, selectedColor == WidgetColorType.PRIMARY) { onColorSelected(WidgetColorType.PRIMARY) }
-        ColorCircle(MaterialTheme.colorScheme.secondary, selectedColor == WidgetColorType.SECONDARY) { onColorSelected(WidgetColorType.SECONDARY) }
-        ColorCircle(MaterialTheme.colorScheme.tertiary, selectedColor == WidgetColorType.TERTIARY) { onColorSelected(WidgetColorType.TERTIARY) }
-        ColorCircle(MaterialTheme.colorScheme.surfaceDim, selectedColor == WidgetColorType.SURFACE) { onColorSelected(WidgetColorType.SURFACE) }
-    }
-}
-
-@Composable
-fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .background(color)
-            .clickable(onClick = onClick)
-            .border(
-                width = if (isSelected) 2.dp else 0.dp,
-                color = if (isSelected) Color.White else Color.Transparent,
-                shape = CircleShape
-            )
-    )
-}
-
-@Composable
-fun WidgetActionButton(icon: ImageVector, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
-        Icon(icon, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
+    
+    LaunchedEffect(widget.colorType) {
+        if (isEditMode) {
+            bounceAnim.animateTo(0.92f, spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMedium))
+            bounceAnim.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMedium))
+        }
     }
 }
 
@@ -583,16 +576,6 @@ fun AgendaPreview(viewModel: MainViewModel) {
     }
 }
 
-@Composable
-fun ChartPlaceholder() {
-    Column {
-        Text("Andamento", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-        Box(modifier = Modifier.fillMaxWidth().height(80.dp).padding(vertical = 12.dp)) {
-            Text("Grafico Attivo", modifier = Modifier.align(Alignment.Center), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddWidgetSheet(
@@ -610,7 +593,7 @@ fun AddWidgetSheet(
             Text("Nuovo Widget", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
             Spacer(modifier = Modifier.height(24.dp))
             
-            WidgetType.values().forEach { type ->
+            WidgetType.entries.forEach { type ->
                 val alreadyPresent = currentWidgets.any { it.type == type && it.isVisible }
                 val label = when(type) {
                     WidgetType.AI_BRIEF -> "Smarty Brief"

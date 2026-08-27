@@ -3,13 +3,6 @@ package com.afloria.smartregister.data.local
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class DashboardSpanSize {
-    SMALL, // 1x1
-    WIDE,  // 2x1
-    LARGE  // 2x2
-}
-
-@Serializable
 enum class WidgetColorType {
     PRIMARY, SECONDARY, TERTIARY, SURFACE
 }
@@ -19,7 +12,8 @@ data class DashboardWidgetState(
     val id: String,
     val type: WidgetType,
     val position: Int,
-    val spanSize: DashboardSpanSize = DashboardSpanSize.WIDE,
+    val width: Int = 1, // grid columns (1 or 2)
+    val height: Int = 1, // grid rows
     val colorType: WidgetColorType = WidgetColorType.SURFACE,
     val isVisible: Boolean = true
 )

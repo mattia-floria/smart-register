@@ -281,11 +281,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _modernDashboardConfig = MutableStateFlow(
         authStorage.getModernDashboardConfig() ?: ModernDashboardConfig(
             widgets = listOf(
-                DashboardWidgetState("ai_brief", WidgetType.AI_BRIEF, 0, DashboardSpanSize.LARGE),
-                DashboardWidgetState("gpa", WidgetType.RECOVERY_STATUS, 1, DashboardSpanSize.SMALL),
-                DashboardWidgetState("countdown", WidgetType.COUNTDOWN, 2, DashboardSpanSize.SMALL),
-                DashboardWidgetState("weekly_chart", WidgetType.WEEKLY_CHART, 3, DashboardSpanSize.WIDE),
-                DashboardWidgetState("agenda", WidgetType.TOMORROW_AGENDA, 4, DashboardSpanSize.WIDE)
+                DashboardWidgetState("ai_brief", WidgetType.AI_BRIEF, 0, width = 2, height = 2),
+                DashboardWidgetState("gpa", WidgetType.RECOVERY_STATUS, 1, width = 1, height = 1),
+                DashboardWidgetState("countdown", WidgetType.COUNTDOWN, 2, width = 1, height = 1),
+                DashboardWidgetState("weekly_chart", WidgetType.WEEKLY_CHART, 3, width = 2, height = 1),
+                DashboardWidgetState("agenda", WidgetType.TOMORROW_AGENDA, 4, width = 2, height = 1)
             )
         )
     )
@@ -1243,6 +1243,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (it.id == id) transform(it) else it
         }
         updateModernDashboardConfig(ModernDashboardConfig(currentWidgets))
+    }
+
+    fun cycleWidgetColor(id: String) {
+        updateWidgetState(id) { state ->
+            val nextColor = when (state.colorType) {
+                WidgetColorType.SURFACE -> WidgetColorType.PRIMARY
+                WidgetColorType.PRIMARY -> WidgetColorType.SECONDARY
+                WidgetColorType.SECONDARY -> WidgetColorType.TERTIARY
+                WidgetColorType.TERTIARY -> WidgetColorType.SURFACE
+            }
+            state.copy(colorType = nextColor)
+        }
+    }
+
+    fun updateWidgetSize(id: String, width: Int, height: Int) {
+        updateWidgetState(id) { it.copy(width = width, height = height) }
     }
 
     fun moveWidget(fromId: String, toId: String) {
