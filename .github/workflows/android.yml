@@ -48,7 +48,7 @@ jobs:
     - name: Rename Signed APK
       run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/Smart-register.apk
 
-    - name: Extract Version and Check Prerelease
+    - name: Extract Version and Description
       id: extract_info
       if: github.event_name == 'push'
       env:
@@ -61,6 +61,14 @@ jobs:
           TAG=$(echo "$VERSION" | tr 'A-Z' 'a-z') # Normalize to lowercase 'v'
           echo "version=$TAG" >> $GITHUB_OUTPUT
           echo "release=true" >> $GITHUB_OUTPUT
+          
+          # Extract description: remove version and 'prerelease' (case insensitive) from commit message
+          # We use sed to remove the first occurrence of the version and any 'prerelease' word
+          DESC=$(echo "$COMMIT_MSG" | sed -E "s/$VERSION//I" | sed -E "s/[Pp]rerelease//g" | sed -E 's/^[[:space:]:,-]+//')
+          
+          echo "description<<EOF" >> $GITHUB_OUTPUT
+          echo "$DESC" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
         else
           echo "release=false" >> $GITHUB_OUTPUT
         fi
@@ -78,8 +86,7 @@ jobs:
         tag_name: ${{ steps.extract_info.outputs.version }}
         name: "Smart-register ${{ steps.extract_info.outputs.version }}"
         body: |
-          🚀 **Release ${{ steps.extract_info.outputs.version }} created successfully**
-          This APK is ready and signed.
+          ${{ steps.extract_info.outputs.description }}
         draft: false
         prerelease: ${{ steps.extract_info.outputs.prerelease == 'true' }}
         files: app/build/outputs/apk/release/Smart-register.apk

@@ -48,7 +48,7 @@ jobs:
     - name: Rename Signed APK
       run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/Smart-register.apk
 
-    - name: Extract Version and Check Prerelease
+    - name: Extract Version and Description
       id: extract_info
       if: github.event_name == 'push'
       env:
@@ -64,6 +64,12 @@ jobs:
           echo "version=$TAG" >> $GITHUB_OUTPUT
           echo "release=true" >> $GITHUB_OUTPUT
           echo "✅ Found version: $TAG"
+
+          # Extract description
+          DESC=$(echo "$COMMIT_MSG" | sed -E "s/$VERSION//I" | sed -E "s/[Pp]rerelease//g" | sed -E 's/^[[:space:]:,-]+//')
+          echo "description<<EOF" >> $GITHUB_OUTPUT
+          echo "$DESC" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
         else
           echo "release=false" >> $GITHUB_OUTPUT
           echo "ℹ️ No version found in commit message. Skipping Release creation."
@@ -83,11 +89,10 @@ jobs:
         tag_name: ${{ steps.extract_info.outputs.version }}
         name: "Smart-register ${{ steps.extract_info.outputs.version }}"
         body: |
-          🚀 **Release ${{ steps.extract_info.outputs.version }} created successfully**
-          Generated automatically from commit: ${{ github.event.head_commit.id }}
+          ${{ steps.extract_info.outputs.description }}
         draft: false
         prerelease: ${{ steps.extract_info.outputs.prerelease == 'true' }}
         files: app/build/outputs/apk/release/Smart-register.apk
-        generate_release_notes: true
+        generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
